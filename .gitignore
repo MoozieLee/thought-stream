@@ -1,0 +1,7 @@
+.build/
+.home/
+.swiftpm/
+.thought-stream/
+.tmp-thought-home/
+.tmp-thought-home-*/
+dist/
