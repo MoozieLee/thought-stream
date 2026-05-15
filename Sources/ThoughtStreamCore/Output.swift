@@ -74,17 +74,25 @@ private struct ThoughtPayload: Codable {
     let id: String
     let content: String
     let created_at: String
+    let updated_at: String
     let day: String
     let source: String
     let channel: String
+    let tags: [String]
+    let archived: Bool
+    let pinned: Bool
 
     init(_ thought: Thought, formatter: ISO8601DateFormatter) {
         id = thought.id
         content = thought.content
         created_at = formatter.string(from: thought.createdAt)
+        updated_at = formatter.string(from: thought.updatedAt)
         day = thought.day
         source = thought.source
         channel = thought.channel
+        tags = thought.tags
+        archived = thought.archived
+        pinned = thought.pinned
     }
 }
 

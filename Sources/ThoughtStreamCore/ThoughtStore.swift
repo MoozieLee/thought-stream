@@ -7,6 +7,7 @@ public struct ThoughtQuery: Sendable {
     public var from: Date?
     public var to: Date?
     public var search: String?
+    public var tag: String?
     public var source: String?
     public var channel: String?
     public var order: SortOrder
@@ -22,6 +23,7 @@ public struct ThoughtQuery: Sendable {
         from: Date? = nil,
         to: Date? = nil,
         search: String? = nil,
+        tag: String? = nil,
         source: String? = nil,
         channel: String? = nil,
         order: SortOrder = .ascending
@@ -31,6 +33,7 @@ public struct ThoughtQuery: Sendable {
         self.from = from
         self.to = to
         self.search = search
+        self.tag = tag
         self.source = source
         self.channel = channel
         self.order = order
@@ -51,11 +54,33 @@ public struct ThoughtDaySummary: Codable, Sendable {
     public let lastEntryAt: Date?
 }
 
+public struct ThoughtUpdate: Sendable {
+    public var content: String?
+    public var tags: [String]?
+    public var archived: Bool?
+    public var pinned: Bool?
+
+    public init(
+        content: String? = nil,
+        tags: [String]? = nil,
+        archived: Bool? = nil,
+        pinned: Bool? = nil
+    ) {
+        self.content = content
+        self.tags = tags
+        self.archived = archived
+        self.pinned = pinned
+    }
+}
+
 public enum ThoughtStoreError: Error, LocalizedError {
     case openDatabase(String)
     case prepare(String)
     case step(String)
     case bind(String)
+    case notFound(String)
+    case invalidTag(String)
+    case invalidUpdate(String)
 
     public var errorDescription: String? {
         switch self {
@@ -63,6 +88,9 @@ public enum ThoughtStoreError: Error, LocalizedError {
         case .prepare(let message): return "Failed to prepare SQLite statement: \(message)"
         case .step(let message): return "SQLite step failed: \(message)"
         case .bind(let message): return "SQLite bind failed: \(message)"
+        case .notFound(let message): return message
+        case .invalidTag(let message): return message
+        case .invalidUpdate(let message): return message
         }
     }
 }
@@ -100,19 +128,44 @@ public final class ThoughtStore: @unchecked Sendable {
         content: String,
         source: String = "human",
         channel: String = "gui",
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        updatedAt: Date? = nil,
+        tags: [String] = [],
+        archived: Bool = false,
+        pinned: Bool = false
     ) throws -> Thought {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitTags = try validateExplicitTags(tags)
+        let mergedTags = ThoughtTagParser.merge(explicitTags, ThoughtTagParser.extract(from: trimmed))
+
         guard !trimmed.isEmpty else {
-            return Thought(content: "", createdAt: createdAt, source: source, channel: channel)
+            return Thought(
+                content: "",
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                source: source,
+                channel: channel,
+                tags: mergedTags,
+                archived: archived,
+                pinned: pinned
+            )
         }
 
-        let thought = Thought(content: trimmed, createdAt: createdAt, source: source, channel: channel)
+        let thought = Thought(
+            content: trimmed,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            source: source,
+            channel: channel,
+            tags: mergedTags,
+            archived: archived,
+            pinned: pinned
+        )
         try execute("BEGIN IMMEDIATE TRANSACTION;")
         do {
             let insertSQL = """
-            INSERT INTO thoughts (id, content, created_at, day, source, channel)
-            VALUES (?, ?, ?, ?, ?, ?);
+            INSERT INTO thoughts (id, content, created_at, updated_at, day, source, channel, tags_json, archived, pinned)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
             let statement = try prepare(insertSQL)
             defer { sqlite3_finalize(statement) }
@@ -120,9 +173,13 @@ public final class ThoughtStore: @unchecked Sendable {
             try bind(text: thought.id, at: 1, in: statement)
             try bind(text: thought.content, at: 2, in: statement)
             try bind(text: isoFormatter.string(from: thought.createdAt), at: 3, in: statement)
-            try bind(text: thought.day, at: 4, in: statement)
-            try bind(text: thought.source, at: 5, in: statement)
-            try bind(text: thought.channel, at: 6, in: statement)
+            try bind(text: isoFormatter.string(from: thought.updatedAt), at: 4, in: statement)
+            try bind(text: thought.day, at: 5, in: statement)
+            try bind(text: thought.source, at: 6, in: statement)
+            try bind(text: thought.channel, at: 7, in: statement)
+            try bind(text: Self.tagsJSONString(from: thought.tags), at: 8, in: statement)
+            sqlite3_bind_int(statement, 9, thought.archived ? 1 : 0)
+            sqlite3_bind_int(statement, 10, thought.pinned ? 1 : 0)
 
             try stepUntilDone(statement)
 
@@ -140,7 +197,7 @@ public final class ThoughtStore: @unchecked Sendable {
 
     public func fetchThoughts(query: ThoughtQuery = ThoughtQuery()) throws -> [Thought] {
         var sql = """
-        SELECT thoughts.id, thoughts.content, thoughts.created_at, thoughts.day, thoughts.source, thoughts.channel
+        SELECT thoughts.id, thoughts.content, thoughts.created_at, thoughts.updated_at, thoughts.day, thoughts.source, thoughts.channel, thoughts.tags_json, thoughts.archived, thoughts.pinned
         FROM thoughts
         """
         var predicates: [String] = []
@@ -150,6 +207,10 @@ public final class ThoughtStore: @unchecked Sendable {
             sql += " JOIN thoughts_fts ON thoughts_fts.rowid = thoughts.rowid "
             predicates.append("thoughts_fts MATCH ?")
             bindings.append(ftsEscaped(search))
+        }
+        if let tag = query.tag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty {
+            predicates.append("EXISTS (SELECT 1 FROM json_each(thoughts.tags_json) WHERE json_each.value = ?)")
+            bindings.append(tag)
         }
         if let from = query.from {
             predicates.append("thoughts.created_at >= ?")
@@ -194,24 +255,34 @@ public final class ThoughtStore: @unchecked Sendable {
                 let idRaw = sqlite3_column_text(statement, 0),
                 let contentRaw = sqlite3_column_text(statement, 1),
                 let createdAtRaw = sqlite3_column_text(statement, 2),
-                let dayRaw = sqlite3_column_text(statement, 3),
-                let sourceRaw = sqlite3_column_text(statement, 4),
-                let channelRaw = sqlite3_column_text(statement, 5)
+                let updatedAtRaw = sqlite3_column_text(statement, 3),
+                let dayRaw = sqlite3_column_text(statement, 4),
+                let sourceRaw = sqlite3_column_text(statement, 5),
+                let channelRaw = sqlite3_column_text(statement, 6)
             else {
                 continue
             }
 
             let createdAtString = String(cString: createdAtRaw)
             let createdAt = isoFormatter.date(from: createdAtString) ?? Date.distantPast
+            let updatedAtString = String(cString: updatedAtRaw)
+            let updatedAt = isoFormatter.date(from: updatedAtString) ?? createdAt
+            let tags = sqlite3_column_text(statement, 7).map { Self.tags(from: String(cString: $0)) } ?? []
+            let archived = sqlite3_column_int(statement, 8) != 0
+            let pinned = sqlite3_column_int(statement, 9) != 0
 
             thoughts.append(
                 Thought(
                     id: String(cString: idRaw),
                     content: String(cString: contentRaw),
                     createdAt: createdAt,
+                    updatedAt: updatedAt,
                     day: String(cString: dayRaw),
                     source: String(cString: sourceRaw),
-                    channel: String(cString: channelRaw)
+                    channel: String(cString: channelRaw),
+                    tags: tags,
+                    archived: archived,
+                    pinned: pinned
                 )
             )
         }
@@ -231,6 +302,179 @@ public final class ThoughtStore: @unchecked Sendable {
                 order: .descending
             )
         )
+    }
+
+    public func fetchTags(prefix: String? = nil, limit: Int = 50) throws -> [String] {
+        let statement = try prepare("SELECT tags_json FROM thoughts WHERE tags_json != '[]';")
+        defer { sqlite3_finalize(statement) }
+
+        var counts: [String: Int] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let tagsRaw = sqlite3_column_text(statement, 0) else { continue }
+            for tag in Self.tags(from: String(cString: tagsRaw)) {
+                counts[tag, default: 0] += 1
+            }
+        }
+
+        let normalizedPrefix = prefix?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return counts.keys
+            .filter { tag in
+                guard let normalizedPrefix, !normalizedPrefix.isEmpty else { return true }
+                return tag.lowercased().hasPrefix(normalizedPrefix)
+            }
+            .sorted {
+                let lhsCount = counts[$0, default: 0]
+                let rhsCount = counts[$1, default: 0]
+                if lhsCount == rhsCount {
+                    return $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+                }
+                return lhsCount > rhsCount
+            }
+            .prefix(max(0, limit))
+            .map(\.self)
+    }
+
+    @discardableResult
+    public func updateThought(
+        id: String,
+        update: ThoughtUpdate,
+        updatedAt: Date = Date()
+    ) throws -> Thought {
+        let existing = try fetchThought(id: id)
+
+        let nextContent: String
+        let inlineTags: [String]
+        if let content = update.content {
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw ThoughtStoreError.invalidUpdate("Thought content cannot be empty.")
+            }
+            nextContent = trimmed
+            inlineTags = ThoughtTagParser.extract(from: trimmed)
+        } else {
+            nextContent = existing.content
+            inlineTags = []
+        }
+
+        let baseTags = try validateExplicitTags(update.tags ?? existing.tags)
+        let nextTags = ThoughtTagParser.merge(baseTags, inlineTags)
+        let nextArchived = update.archived ?? existing.archived
+        let nextPinned = update.pinned ?? existing.pinned
+
+        let hasChanges =
+            nextContent != existing.content ||
+            nextTags != existing.tags ||
+            nextArchived != existing.archived ||
+            nextPinned != existing.pinned
+
+        guard hasChanges else {
+            return existing
+        }
+
+        let nextThought = Thought(
+            id: existing.id,
+            content: nextContent,
+            createdAt: existing.createdAt,
+            updatedAt: updatedAt,
+            day: existing.day,
+            source: existing.source,
+            channel: existing.channel,
+            tags: nextTags,
+            archived: nextArchived,
+            pinned: nextPinned
+        )
+
+        try execute("BEGIN IMMEDIATE TRANSACTION;")
+        do {
+            let updateSQL = """
+            UPDATE thoughts
+            SET content = ?, updated_at = ?, tags_json = ?, archived = ?, pinned = ?
+            WHERE id = ?;
+            """
+            let statement = try prepare(updateSQL)
+            defer { sqlite3_finalize(statement) }
+
+            try bind(text: nextThought.content, at: 1, in: statement)
+            try bind(text: isoFormatter.string(from: nextThought.updatedAt), at: 2, in: statement)
+            try bind(text: Self.tagsJSONString(from: nextThought.tags), at: 3, in: statement)
+            sqlite3_bind_int(statement, 4, nextThought.archived ? 1 : 0)
+            sqlite3_bind_int(statement, 5, nextThought.pinned ? 1 : 0)
+            try bind(text: nextThought.id, at: 6, in: statement)
+
+            try stepUntilDone(statement)
+
+            try execute(
+                """
+                UPDATE thoughts_fts
+                SET content = ?
+                WHERE rowid = (SELECT rowid FROM thoughts WHERE id = ?);
+                """,
+                bindings: [nextThought.content, nextThought.id]
+            )
+            try execute("COMMIT;")
+            return nextThought
+        } catch {
+            try? execute("ROLLBACK;")
+            throw error
+        }
+    }
+
+    public func fetchThought(id: String) throws -> Thought {
+        let sql = """
+        SELECT thoughts.id, thoughts.content, thoughts.created_at, thoughts.updated_at, thoughts.day, thoughts.source, thoughts.channel, thoughts.tags_json, thoughts.archived, thoughts.pinned
+        FROM thoughts
+        WHERE thoughts.id = ?
+        LIMIT 1;
+        """
+        let statement = try prepare(sql)
+        defer { sqlite3_finalize(statement) }
+        try bind(text: id, at: 1, in: statement)
+
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              let idRaw = sqlite3_column_text(statement, 0),
+              let contentRaw = sqlite3_column_text(statement, 1),
+              let createdAtRaw = sqlite3_column_text(statement, 2),
+              let updatedAtRaw = sqlite3_column_text(statement, 3),
+              let dayRaw = sqlite3_column_text(statement, 4),
+              let sourceRaw = sqlite3_column_text(statement, 5),
+              let channelRaw = sqlite3_column_text(statement, 6) else {
+            throw ThoughtStoreError.notFound("Thought not found: \(id)")
+        }
+
+        let createdAt = isoFormatter.date(from: String(cString: createdAtRaw)) ?? Date.distantPast
+        let updatedAt = isoFormatter.date(from: String(cString: updatedAtRaw)) ?? createdAt
+        let tags = sqlite3_column_text(statement, 7).map { Self.tags(from: String(cString: $0)) } ?? []
+        let archived = sqlite3_column_int(statement, 8) != 0
+        let pinned = sqlite3_column_int(statement, 9) != 0
+
+        return Thought(
+            id: String(cString: idRaw),
+            content: String(cString: contentRaw),
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            day: String(cString: dayRaw),
+            source: String(cString: sourceRaw),
+            channel: String(cString: channelRaw),
+            tags: tags,
+            archived: archived,
+            pinned: pinned
+        )
+    }
+
+    @discardableResult
+    public func deleteThought(id: String) throws -> Thought {
+        let existing = try fetchThought(id: id)
+
+        try execute("BEGIN IMMEDIATE TRANSACTION;")
+        do {
+            try execute("DELETE FROM thoughts_fts WHERE rowid = (SELECT rowid FROM thoughts WHERE id = ?);", bindings: [id])
+            try execute("DELETE FROM thoughts WHERE id = ?;", bindings: [id])
+            try execute("COMMIT;")
+            return existing
+        } catch {
+            try? execute("ROLLBACK;")
+            throw error
+        }
     }
 
     public func fetchStats() throws -> ThoughtStats {
@@ -334,20 +578,68 @@ public final class ThoughtStore: @unchecked Sendable {
                 id TEXT NOT NULL UNIQUE,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
                 day TEXT NOT NULL,
                 source TEXT NOT NULL,
-                channel TEXT NOT NULL
+                channel TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                archived INTEGER NOT NULL DEFAULT 0,
+                pinned INTEGER NOT NULL DEFAULT 0
             );
             """
         )
+        try migrateSchemaIfNeeded()
         try execute("CREATE INDEX IF NOT EXISTS idx_thoughts_created_at ON thoughts(created_at);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_thoughts_updated_at ON thoughts(updated_at);")
         try execute("CREATE INDEX IF NOT EXISTS idx_thoughts_day ON thoughts(day);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_thoughts_archived ON thoughts(archived);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_thoughts_pinned ON thoughts(pinned);")
         try execute(
             """
             CREATE VIRTUAL TABLE IF NOT EXISTS thoughts_fts
             USING fts5(content, tokenize='unicode61');
             """
         )
+    }
+
+    private func migrateSchemaIfNeeded() throws {
+        let columns = try fetchThoughtColumnNames()
+        if !columns.contains("updated_at") {
+            try execute("ALTER TABLE thoughts ADD COLUMN updated_at TEXT;")
+            try execute("UPDATE thoughts SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = '';")
+        }
+        if !columns.contains("tags_json") {
+            try execute("ALTER TABLE thoughts ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';")
+        }
+        if !columns.contains("archived") {
+            try execute("ALTER TABLE thoughts ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;")
+        }
+        if !columns.contains("pinned") {
+            try execute("ALTER TABLE thoughts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;")
+        }
+    }
+
+    private func fetchThoughtColumnNames() throws -> Set<String> {
+        let statement = try prepare("PRAGMA table_info(thoughts);")
+        defer { sqlite3_finalize(statement) }
+
+        var columns = Set<String>()
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let nameRaw = sqlite3_column_text(statement, 1) else { continue }
+            columns.insert(String(cString: nameRaw))
+        }
+        return columns
+    }
+
+    private func validateExplicitTags(_ tags: [String]) throws -> [String] {
+        let normalized = ThoughtTagParser.normalizeExplicitTags(tags)
+        let invalidTags = ThoughtTagParser.invalidTags(in: normalized)
+        guard invalidTags.isEmpty else {
+            throw ThoughtStoreError.invalidTag(
+                "Tags cannot contain spaces or special phrase syntax. Use single-token tags like `#code-review`."
+            )
+        }
+        return normalized
     }
 
     private static func prepareBaseDirectory(_ input: URL?) throws -> URL {
@@ -438,6 +730,26 @@ public final class ThoughtStore: @unchecked Sendable {
             .map { token in "\"\(token.replacing("\"", with: "\"\""))\"" }
             .joined(separator: " ")
         return collapsed.isEmpty ? search : collapsed
+    }
+
+    private static func tagsJSONString(from tags: [String]) -> String {
+        guard
+            let data = try? JSONEncoder().encode(tags),
+            let string = String(data: data, encoding: .utf8)
+        else {
+            return "[]"
+        }
+        return string
+    }
+
+    private static func tags(from json: String) -> [String] {
+        guard
+            let data = json.data(using: .utf8),
+            let tags = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return tags
     }
 
     private static func sqliteMessage(from db: OpaquePointer?) -> String {

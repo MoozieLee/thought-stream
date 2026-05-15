@@ -35,6 +35,12 @@ struct CLI {
             try days(args: Array(arguments.dropFirst()))
         case "add":
             try add(args: Array(arguments.dropFirst()))
+        case "update":
+            try update(args: Array(arguments.dropFirst()))
+        case "get":
+            try get(args: Array(arguments.dropFirst()))
+        case "delete":
+            try delete(args: Array(arguments.dropFirst()))
         case "help", "--help", "-h":
             print(Self.help)
         default:
@@ -100,6 +106,9 @@ struct CLI {
     private func add(args: [String]) throws {
         let source = value(after: "--source", in: args) ?? "human"
         let channel = value(after: "--channel", in: args) ?? "cli"
+        let tags = values(after: "--tag", in: args)
+        let archived = args.contains("--archived")
+        let pinned = args.contains("--pinned")
 
         let text: String
         if let stdinText = try readStandardInputIfAvailable(), !stdinText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -112,7 +121,62 @@ struct CLI {
             throw CLIError.usage("`thought add` needs text from args or stdin.")
         }
 
-        _ = try store.addThought(content: text, source: source, channel: channel)
+        _ = try store.addThought(
+            content: text,
+            source: source,
+            channel: channel,
+            tags: tags,
+            archived: archived,
+            pinned: pinned
+        )
+    }
+
+    private func update(args: [String]) throws {
+        guard let id = positionalArguments(in: args).first else {
+            throw CLIError.usage("`thought update <id>` requires a thought id.")
+        }
+
+        let explicitContent = value(after: "--content", in: args)
+        let tags = values(after: "--tag", in: args)
+        let clearTags = args.contains("--clear-tags")
+        let archived = boolValue(trueFlag: "--archived", falseFlag: "--unarchived", in: args)
+        let pinned = boolValue(trueFlag: "--pinned", falseFlag: "--unpinned", in: args)
+
+        let trailingContent = positionalArguments(in: args).dropFirst()
+        let content = explicitContent ?? (trailingContent.isEmpty ? nil : trailingContent.joined(separator: " "))
+        let tagUpdate: [String]? = clearTags ? [] : (tags.isEmpty ? nil : tags)
+
+        let update = ThoughtUpdate(
+            content: content,
+            tags: tagUpdate,
+            archived: archived,
+            pinned: pinned
+        )
+
+        guard update.content != nil || update.tags != nil || update.archived != nil || update.pinned != nil else {
+            throw CLIError.usage("`thought update <id>` requires at least one field to update.")
+        }
+
+        let thought = try store.updateThought(id: id, update: update)
+        try ThoughtOutput.printThoughts([thought], json: true)
+    }
+
+    private func get(args: [String]) throws {
+        guard let id = positionalArguments(in: args).first else {
+            throw CLIError.usage("`thought get <id>` requires a thought id.")
+        }
+
+        let thought = try store.fetchThought(id: id)
+        try ThoughtOutput.printThoughts([thought], json: true)
+    }
+
+    private func delete(args: [String]) throws {
+        guard let id = positionalArguments(in: args).first else {
+            throw CLIError.usage("`thought delete <id>` requires a thought id.")
+        }
+
+        let thought = try store.deleteThought(id: id)
+        try ThoughtOutput.printThoughts([thought], json: true)
     }
 
     private func readStandardInputIfAvailable() throws -> String? {
@@ -134,13 +198,40 @@ struct CLI {
         return args[index + 1]
     }
 
+    private func values(after flag: String, in args: [String]) -> [String] {
+        var values: [String] = []
+        var index = 0
+        while index < args.count {
+            if args[index] == flag, args.indices.contains(index + 1) {
+                values.append(args[index + 1])
+                index += 2
+                continue
+            }
+            index += 1
+        }
+        return values
+    }
+
+    private func boolValue(trueFlag: String, falseFlag: String, in args: [String]) -> Bool? {
+        let hasTrue = args.contains(trueFlag)
+        let hasFalse = args.contains(falseFlag)
+        if hasTrue == hasFalse {
+            return nil
+        }
+        return hasTrue
+    }
+
     private func positionalArguments(in args: [String]) -> [String] {
         var values: [String] = []
         var index = 0
         while index < args.count {
             let arg = args[index]
-            if arg == "--source" || arg == "--channel" {
+            if arg == "--source" || arg == "--channel" || arg == "--tag" || arg == "--content" {
                 index += 2
+                continue
+            }
+            if arg == "--archived" || arg == "--pinned" || arg == "--unarchived" || arg == "--unpinned" || arg == "--clear-tags" {
+                index += 1
                 continue
             }
             if arg.hasPrefix("--") {
@@ -161,7 +252,10 @@ struct CLI {
       thought export [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL]
       thought stats [--json]
       thought days [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--json]
-      thought add <text> [--source SOURCE] [--channel CHANNEL]
+      thought add <text> [--source SOURCE] [--channel CHANNEL] [--tag TAG ...] [--archived] [--pinned]
+      thought update <id> [--content TEXT] [--tag TAG ...] [--clear-tags] [--archived|--unarchived] [--pinned|--unpinned]
+      thought get <id> [--json]
+      thought delete <id>
 
     date formats:
       2026-05-12
