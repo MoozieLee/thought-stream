@@ -31,8 +31,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem?.button?.title = "TS"
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem?.button {
+            if let image = menuBarImage() {
+                button.image = image
+                button.imagePosition = .imageOnly
+            } else {
+                button.title = "TS"
+            }
+            button.toolTip = "ThoughtStream"
+        }
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Toggle Capture", action: #selector(toggleCapturePanel), keyEquivalent: ""))
@@ -40,6 +48,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         statusItem?.menu = menu
+    }
+
+    private func menuBarImage() -> NSImage? {
+        guard
+            let url = Bundle.main.url(forResource: "MenuBarIconTemplate", withExtension: "png"),
+            let image = NSImage(contentsOf: url)
+        else {
+            return nil
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 18, height: 18)
+        return image
     }
 
     private func installHotKey() {

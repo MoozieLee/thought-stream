@@ -8,20 +8,34 @@ APP_DIR="$DIST_DIR/ThoughtStream.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+RESOURCES_SOURCE_DIR="$ROOT_DIR/Resources"
 HOME_DIR="$ROOT_DIR/.home"
 MODULE_CACHE_DIR="$BUILD_DIR/ModuleCache"
+BUILD_CONFIGURATION="${BUILD_CONFIGURATION:-debug}"
+APP_VERSION="${APP_VERSION:-0.1.0}"
+APP_BUILD="${APP_BUILD:-1}"
+APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.thoughtstream.app}"
+APP_EXECUTABLE="ThoughtStreamApp"
 
 mkdir -p "$HOME_DIR" "$MODULE_CACHE_DIR" "$DIST_DIR"
 
 env HOME="$HOME_DIR" \
   CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" \
-  swift build --product ThoughtStreamApp
+  swift build -c "$BUILD_CONFIGURATION" --product "$APP_EXECUTABLE"
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$BUILD_DIR/debug/ThoughtStreamApp" "$MACOS_DIR/ThoughtStreamApp"
-chmod +x "$MACOS_DIR/ThoughtStreamApp"
+cp "$BUILD_DIR/$BUILD_CONFIGURATION/$APP_EXECUTABLE" "$MACOS_DIR/$APP_EXECUTABLE"
+chmod +x "$MACOS_DIR/$APP_EXECUTABLE"
+
+if [[ -f "$RESOURCES_SOURCE_DIR/AppIcon.icns" ]]; then
+  cp "$RESOURCES_SOURCE_DIR/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+fi
+
+if [[ -f "$RESOURCES_SOURCE_DIR/status/MenuBarIconTemplate.png" ]]; then
+  cp "$RESOURCES_SOURCE_DIR/status/MenuBarIconTemplate.png" "$RESOURCES_DIR/MenuBarIconTemplate.png"
+fi
 
 cat > "$CONTENTS_DIR/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -54,6 +68,16 @@ cat > "$CONTENTS_DIR/Info.plist" <<'EOF'
 </plist>
 EOF
 
+/usr/bin/plutil -replace CFBundleExecutable -string "$APP_EXECUTABLE" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleIdentifier -string "$APP_BUNDLE_ID" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleVersion -string "$APP_BUILD" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleIconFile -string "AppIcon" "$CONTENTS_DIR/Info.plist"
+
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
+
+xattr -cr "$APP_DIR"
+codesign --force --sign - "$MACOS_DIR/$APP_EXECUTABLE" >/dev/null
+codesign --force --sign - "$APP_DIR" >/dev/null
 
 echo "Built app bundle at: $APP_DIR"

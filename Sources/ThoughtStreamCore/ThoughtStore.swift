@@ -8,8 +8,10 @@ public struct ThoughtQuery: Sendable {
     public var to: Date?
     public var search: String?
     public var tag: String?
+    public var archived: Bool?
     public var source: String?
     public var channel: String?
+    public var pinnedFirst: Bool
     public var order: SortOrder
 
     public enum SortOrder: Sendable {
@@ -24,8 +26,10 @@ public struct ThoughtQuery: Sendable {
         to: Date? = nil,
         search: String? = nil,
         tag: String? = nil,
+        archived: Bool? = nil,
         source: String? = nil,
         channel: String? = nil,
+        pinnedFirst: Bool = false,
         order: SortOrder = .ascending
     ) {
         self.limit = limit
@@ -34,8 +38,10 @@ public struct ThoughtQuery: Sendable {
         self.to = to
         self.search = search
         self.tag = tag
+        self.archived = archived
         self.source = source
         self.channel = channel
+        self.pinnedFirst = pinnedFirst
         self.order = order
     }
 }
@@ -212,6 +218,10 @@ public final class ThoughtStore: @unchecked Sendable {
             predicates.append("EXISTS (SELECT 1 FROM json_each(thoughts.tags_json) WHERE json_each.value = ?)")
             bindings.append(tag)
         }
+        if let archived = query.archived {
+            predicates.append("thoughts.archived = ?")
+            bindings.append(archived ? "1" : "0")
+        }
         if let from = query.from {
             predicates.append("thoughts.created_at >= ?")
             bindings.append(isoFormatter.string(from: from))
@@ -231,7 +241,11 @@ public final class ThoughtStore: @unchecked Sendable {
         if !predicates.isEmpty {
             sql += " WHERE " + predicates.joined(separator: " AND ")
         }
-        sql += " ORDER BY thoughts.created_at " + (query.order == .ascending ? "ASC" : "DESC")
+        if query.pinnedFirst {
+            sql += " ORDER BY thoughts.pinned DESC, thoughts.created_at " + (query.order == .ascending ? "ASC" : "DESC")
+        } else {
+            sql += " ORDER BY thoughts.created_at " + (query.order == .ascending ? "ASC" : "DESC")
+        }
         if let limit = query.limit {
             sql += " LIMIT \(max(0, limit))"
         }
@@ -356,7 +370,12 @@ public final class ThoughtStore: @unchecked Sendable {
             inlineTags = []
         }
 
-        let baseTags = try validateExplicitTags(update.tags ?? existing.tags)
+        let baseTags: [String]
+        if let explicitTags = update.tags {
+            baseTags = try validateExplicitTags(explicitTags)
+        } else {
+            baseTags = existing.tags
+        }
         let nextTags = ThoughtTagParser.merge(baseTags, inlineTags)
         let nextArchived = update.archived ?? existing.archived
         let nextPinned = update.pinned ?? existing.pinned

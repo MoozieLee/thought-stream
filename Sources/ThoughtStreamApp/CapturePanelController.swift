@@ -4,7 +4,7 @@ import ThoughtStreamCore
 @MainActor
 final class CapturePanelController: NSWindowController, NSWindowDelegate {
     private struct ResultSession {
-        let command: ResultCommand
+        let command: CaptureResultCommand
         var offset: Int
         var hasMore: Bool
     }
@@ -16,11 +16,18 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
     private let defaults = UserDefaults.standard
     private let originXKey = "capturePanel.origin.x"
     private let originYKey = "capturePanel.origin.y"
+    private let relativeOriginXKey = "capturePanel.relativeOrigin.x"
+    private let relativeOriginYKey = "capturePanel.relativeOrigin.y"
     private var persistentResultsVisible = false
     private var persistentEmptyStateText = "No notes yet"
     private var knownTags: [String] = []
     private var resultSession: ResultSession?
     private let resultPageSize = 100
+    private var inputHistory: [String] = []
+    private var inputHistoryIndex: Int?
+    private var inputHistoryDraftSnapshot: String?
+    private var isApplyingInputHistoryNavigation = false
+    private var editingThoughtID: String?
 
     init(store: ThoughtStore) {
         self.store = store
@@ -61,10 +68,41 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
             self?.handleTextChange(text)
         }
         captureView.onCancel = { [weak self] in
-            self?.hidePanel()
+            guard let self else { return }
+            if self.cancelEditingMode() {
+                return
+            }
+            self.hidePanel()
         }
         captureView.onRequestMoreTailResults = { [weak self] in
             self?.loadMoreResults() ?? false
+        }
+        captureView.onSelectedResultAction = { [weak self] row in
+            self?.handleSelectedResultAction(row)
+        }
+        captureView.onSelectedResultPinToggle = { [weak self] row in
+            self?.togglePin(for: row)
+        }
+        captureView.onSelectedResultArchiveToggle = { [weak self] row in
+            self?.toggleArchive(for: row)
+        }
+        captureView.onSelectedResultCopy = { [weak self] row in
+            self?.copyResult(row)
+        }
+        captureView.onSelectedResultEdit = { [weak self] row in
+            self?.beginEditing(row)
+        }
+        captureView.onRequestTailFromKeyboard = { [weak self] in
+            self?.showTailFromKeyboard() ?? false
+        }
+        captureView.onCollapseResults = { [weak self] in
+            self?.collapseResults()
+        }
+        captureView.onInputHistoryPrevious = { [weak self] in
+            self?.showPreviousInputHistoryEntry() ?? false
+        }
+        captureView.onInputHistoryNext = { [weak self] in
+            self?.showNextInputHistoryEntry() ?? false
         }
     }
 
@@ -90,6 +128,8 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
 
         persistentResultsVisible = false
         resultSession = nil
+        resetInputHistoryNavigation()
+        refreshInputHistory()
         refreshKnownTags()
         captureView.reset()
         resizeWindowToMatchContent(panel, animate: false)
@@ -106,6 +146,11 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         let origin = panel.frame.origin
         defaults.set(origin.x, forKey: originXKey)
         defaults.set(origin.y, forKey: originYKey)
+        if let screen = screenForCurrentFocus() ?? panel.screen {
+            let relativeOrigin = relativeOrigin(for: panel.frame, in: screen.visibleFrame)
+            defaults.set(relativeOrigin.x, forKey: relativeOriginXKey)
+            defaults.set(relativeOrigin.y, forKey: relativeOriginYKey)
+        }
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -130,19 +175,35 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         }
 
         let normalized = submittedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let errorMessage = inlineErrorMessage(for: normalized) {
+            captureView.setInlineError(errorMessage)
+        }
         switch parseSlashCommand(normalized) {
         case .handled(let command):
+            captureView.setInlineError(nil)
             executeSlashCommand(command)
             return
         case .invalid:
+            captureView.setInlineError(inlineErrorMessage(for: normalized) ?? "Invalid command")
             NSSound.beep()
             return
         case .notCommand:
+            captureView.setInlineError(nil)
             break
         }
 
         do {
-            _ = try store.addThought(content: normalized, source: "human", channel: "gui")
+            if let editingThoughtID {
+                _ = try store.updateThought(
+                    id: editingThoughtID,
+                    update: ThoughtUpdate(content: normalized)
+                )
+                endEditingMode()
+            } else {
+                _ = try store.addThought(content: normalized, source: "human", channel: "gui")
+                recordInputHistoryEntry(normalized)
+            }
+            refreshInputHistory()
             refreshKnownTags()
             if persistentResultsVisible {
                 refreshResultSession()
@@ -160,28 +221,45 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
     func hidePanel() {
         persistentResultsVisible = false
         resultSession = nil
+        resetInputHistoryNavigation()
+        endEditingMode()
         captureView.reset()
         window?.orderOut(nil)
         previousApp?.activate(options: [.activateIgnoringOtherApps])
     }
 
-    private func positionPanel(_ panel: NSWindow) {
-        if let restored = restoredOrigin(), isFrameVisible(panel.frame, at: restored) {
-            panel.setFrameOrigin(restored)
-            return
+    private func collapseResults() {
+        persistentResultsVisible = false
+        resultSession = nil
+        captureView.hideResults()
+        if let panel = window {
+            resizeWindowToMatchContent(panel, animate: true)
+            panel.makeFirstResponder(captureView.textView)
         }
+    }
 
-        if let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main {
+    private func positionPanel(_ panel: NSWindow) {
+        let targetScreen = screenForCurrentFocus() ?? NSScreen.main
+        if let targetScreen {
+            if let restored = restoredOrigin(for: panel.frame, targetScreen: targetScreen), isFrameVisible(panel.frame, at: restored) {
+                panel.setFrameOrigin(restored)
+                return
+            }
+
             let frame = panel.frame
             let origin = NSPoint(
-                x: screen.frame.midX - frame.width / 2,
-                y: screen.frame.midY - frame.height / 2
+                x: targetScreen.frame.midX - frame.width / 2,
+                y: targetScreen.frame.midY - frame.height / 2
             )
             panel.setFrameOrigin(origin)
         }
     }
 
-    private func restoredOrigin() -> NSPoint? {
+    private func restoredOrigin(for frame: NSRect, targetScreen: NSScreen) -> NSPoint? {
+        if let relativeOrigin = restoredRelativeOrigin() {
+            return absoluteOrigin(from: relativeOrigin, frame: frame, in: targetScreen.visibleFrame)
+        }
+
         guard
             defaults.object(forKey: originXKey) != nil,
             defaults.object(forKey: originYKey) != nil
@@ -194,6 +272,55 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         )
     }
 
+    private func restoredRelativeOrigin() -> NSPoint? {
+        guard
+            defaults.object(forKey: relativeOriginXKey) != nil,
+            defaults.object(forKey: relativeOriginYKey) != nil
+        else {
+            return nil
+        }
+        return NSPoint(
+            x: defaults.double(forKey: relativeOriginXKey),
+            y: defaults.double(forKey: relativeOriginYKey)
+        )
+    }
+
+    private func screenForCurrentFocus() -> NSScreen? {
+        NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main
+    }
+
+    private func relativeOrigin(for frame: NSRect, in visibleFrame: NSRect) -> NSPoint {
+        let availableWidth = max(1, visibleFrame.width - frame.width)
+        let availableHeight = max(1, visibleFrame.height - frame.height)
+        let relativeX = (frame.origin.x - visibleFrame.minX) / availableWidth
+        let relativeY = (frame.origin.y - visibleFrame.minY) / availableHeight
+        return NSPoint(
+            x: min(max(relativeX, 0), 1),
+            y: min(max(relativeY, 0), 1)
+        )
+    }
+
+    private func absoluteOrigin(from relativeOrigin: NSPoint, frame: NSRect, in visibleFrame: NSRect) -> NSPoint {
+        let availableWidth = max(0, visibleFrame.width - frame.width)
+        let availableHeight = max(0, visibleFrame.height - frame.height)
+        let proposed = NSPoint(
+            x: visibleFrame.minX + min(max(relativeOrigin.x, 0), 1) * availableWidth,
+            y: visibleFrame.minY + min(max(relativeOrigin.y, 0), 1) * availableHeight
+        )
+        return clampedOrigin(for: proposed, frame: frame, in: visibleFrame)
+    }
+
+    private func clampedOrigin(for origin: NSPoint, frame: NSRect, in visibleFrame: NSRect) -> NSPoint {
+        let minX = visibleFrame.minX
+        let maxX = max(visibleFrame.minX, visibleFrame.maxX - frame.width)
+        let minY = visibleFrame.minY
+        let maxY = max(visibleFrame.minY, visibleFrame.maxY - frame.height)
+        return NSPoint(
+            x: min(max(origin.x, minX), maxX),
+            y: min(max(origin.y, minY), maxY)
+        )
+    }
+
     private func isFrameVisible(_ frame: NSRect, at origin: NSPoint) -> Bool {
         let candidate = NSRect(origin: origin, size: frame.size)
         return NSScreen.screens.contains { screen in
@@ -202,7 +329,13 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func handleTextChange(_ text: String) {
+        if isApplyingInputHistoryNavigation {
+            isApplyingInputHistoryNavigation = false
+        } else {
+            resetInputHistoryNavigation(keepingDraftSnapshot: false)
+        }
         captureView.setAutocompleteSuggestion(autocompleteSuggestion(for: text))
+        captureView.setInlineError(inlineErrorMessage(for: text))
 
         guard captureView.isShowingResults else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -230,12 +363,8 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func autocompleteSuggestion(for text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("/"), !trimmed.contains(" ") {
-            let availableCommands = ["/tail", "/search", "/today", "/tag", "/help", "/exit"]
-            return availableCommands.first { command in
-                command != trimmed && command.hasPrefix(trimmed)
-            }
+        if let suggestion = CaptureSlashCommandParser.autocompleteSuggestion(for: text) {
+            return suggestion
         }
 
         guard let match = text.range(of: #"(?:^|\s)#([^\s#{]+)$"#, options: .regularExpression) else {
@@ -270,57 +399,16 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func parseSlashCommand(_ text: String) -> SlashCommandParseResult {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("/") else {
-            return .notCommand
-        }
-
-        let parts = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard let command = parts.first else {
-            return .notCommand
-        }
-
-        switch command {
-        case "/exit":
-            return parts.count == 1 ? .handled(.exit) : .invalid
-        case "/help":
-            return parts.count == 1 ? .handled(.help) : .invalid
-        case "/today":
-            return parts.count == 1 ? .handled(.today) : .invalid
-        case "/search":
-            let query = parts.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            return query.isEmpty ? .invalid : .handled(.search(query: query))
-        case "/tag":
-            guard parts.count == 2 else { return .invalid }
-            let tag = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard Self.isValidInlineTag(tag) else { return .invalid }
-            return .handled(.tag(tag: tag))
-        case "/tail":
-            if parts.count == 1 {
-                return .handled(.tail(limit: nil))
-            }
-            guard parts.count == 2 else { return .invalid }
-
-            let argument = parts[1]
-            if let limit = Int(argument), limit > 0 {
-                return .handled(.tail(limit: limit))
-            }
-
-            let prefix = "limit:"
-            if argument.hasPrefix(prefix) {
-                let raw = String(argument.dropFirst(prefix.count))
-                if let limit = Int(raw), limit > 0 {
-                    return .handled(.tail(limit: limit))
-                }
-            }
-            return .invalid
-        default:
-            return .notCommand
-        }
+    private func parseSlashCommand(_ text: String) -> CaptureSlashCommandParseResult {
+        CaptureSlashCommandParser.parse(text)
     }
 
-    private func executeSlashCommand(_ command: SlashCommand) {
+    private func inlineErrorMessage(for text: String) -> String? {
+        CaptureSlashCommandParser.inlineErrorMessage(for: text)
+    }
+
+    private func executeSlashCommand(_ command: CaptureSlashCommand) {
+        endEditingMode()
         switch command {
         case .tail(let limit):
             showResults(for: .tail(limit: limit))
@@ -334,6 +422,12 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         case .tag(let tag):
             showResults(for: .tag(tag: tag))
             captureView.clearInput(keepResults: true)
+        case .archive:
+            showResults(for: .archive)
+            captureView.clearInput(keepResults: true)
+        case .hide:
+            captureView.clearInput(keepResults: false)
+            collapseResults()
         case .help:
             showResults(for: .help)
             captureView.clearInput(keepResults: true)
@@ -345,6 +439,10 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
                 executeSlashCommand(.tail(limit: nil))
             case "/search", "/tag":
                 return
+            case "/archive":
+                executeSlashCommand(.archive)
+            case "/hide":
+                executeSlashCommand(.hide)
             case "/today":
                 executeSlashCommand(.today)
             case "/help":
@@ -357,23 +455,214 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func showResults(for command: ResultCommand) {
+    private func showTailFromKeyboard() -> Bool {
+        guard !captureView.isShowingResults else { return false }
+        guard captureView.textView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        captureView.setInlineError(nil)
+        showResults(for: .tail(limit: nil), focusedSurface: .results)
+        if let panel = window {
+            resizeWindowToMatchContent(panel, animate: true)
+            panel.makeFirstResponder(captureView.textView)
+        }
+        return true
+    }
+
+    private func showPreviousInputHistoryEntry() -> Bool {
+        guard !captureView.textView.hasMarkedText() else { return false }
+        guard !inputHistory.isEmpty else { return false }
+        guard captureView.textView.window?.firstResponder === captureView.textView else { return false }
+        guard captureView.isInputSurfaceFocused else { return false }
+
+        let draft = captureView.textView.string
+        if inputHistoryIndex == nil {
+            inputHistoryDraftSnapshot = draft
+            inputHistoryIndex = inputHistory.count - 1
+        } else if let currentIndex = inputHistoryIndex, currentIndex > 0 {
+            inputHistoryIndex = currentIndex - 1
+        }
+
+        guard let historyIndex = inputHistoryIndex, inputHistory.indices.contains(historyIndex) else {
+            return false
+        }
+
+        applyInputHistoryDraft(inputHistory[historyIndex])
+        return true
+    }
+
+    private func showNextInputHistoryEntry() -> Bool {
+        guard !captureView.textView.hasMarkedText() else { return false }
+        guard captureView.textView.window?.firstResponder === captureView.textView else { return false }
+        guard captureView.isInputSurfaceFocused else { return false }
+        guard let currentIndex = inputHistoryIndex else { return false }
+
+        let nextIndex = currentIndex + 1
+        if inputHistory.indices.contains(nextIndex) {
+            inputHistoryIndex = nextIndex
+            applyInputHistoryDraft(inputHistory[nextIndex])
+            return true
+        }
+
+        let draft = inputHistoryDraftSnapshot ?? ""
+        resetInputHistoryNavigation(keepingDraftSnapshot: false)
+        applyInputHistoryDraft(draft)
+        return true
+    }
+
+    private func applyInputHistoryDraft(_ text: String) {
+        isApplyingInputHistoryNavigation = true
+        captureView.populateDraft(text, hideResults: false)
+        if let panel = window {
+            resizeWindowToMatchContent(panel, animate: true)
+            panel.makeFirstResponder(captureView.textView)
+        }
+    }
+
+    private func recordInputHistoryEntry(_ text: String) {
+        guard !text.isEmpty else { return }
+        if inputHistory.last != text {
+            inputHistory.append(text)
+            if inputHistory.count > 200 {
+                inputHistory.removeFirst(inputHistory.count - 200)
+            }
+        }
+        resetInputHistoryNavigation(keepingDraftSnapshot: false)
+    }
+
+    private func refreshInputHistory() {
+        do {
+            let query = ThoughtQueryPresets.recent(
+                limit: 200,
+                archived: false,
+                source: "human",
+                channel: "gui",
+                pinnedFirst: false,
+                order: .descending
+            )
+            let thoughts = try store.fetchThoughts(query: query)
+            inputHistory = thoughts.reversed().map(\.content)
+        } catch {
+            inputHistory = []
+        }
+    }
+
+    private func resetInputHistoryNavigation(keepingDraftSnapshot: Bool = false) {
+        inputHistoryIndex = nil
+        if !keepingDraftSnapshot {
+            inputHistoryDraftSnapshot = nil
+        }
+    }
+
+    private func handleSelectedResultAction(_ row: CaptureResultRow) {
+        guard let reuseText = row.reuseText, !reuseText.isEmpty else { return }
+        endEditingMode()
+        captureView.populateDraft(reuseText, hideResults: false)
+        if let panel = window {
+            resizeWindowToMatchContent(panel, animate: true)
+            panel.makeFirstResponder(captureView.textView)
+        }
+    }
+
+    private func beginEditing(_ row: CaptureResultRow) {
+        guard let thoughtID = row.thoughtID, let reuseText = row.reuseText, !reuseText.isEmpty else { return }
+        editingThoughtID = thoughtID
+        resetInputHistoryNavigation(keepingDraftSnapshot: false)
+        captureView.setInlineError(nil)
+        captureView.setModeStatus("Editing note · Enter to save · Esc to cancel")
+        captureView.populateDraft(reuseText, hideResults: false)
+        if let panel = window {
+            resizeWindowToMatchContent(panel, animate: true)
+            panel.makeFirstResponder(captureView.textView)
+        }
+    }
+
+    private func togglePin(for row: CaptureResultRow) {
+        guard let thoughtID = row.thoughtID else { return }
+        do {
+            _ = try store.updateThought(
+                id: thoughtID,
+                update: ThoughtUpdate(pinned: !row.pinned)
+            )
+            refreshResultSession()
+            captureView.setInlineError(nil)
+            if let panel = window {
+                resizeWindowToMatchContent(panel, animate: true)
+                panel.makeFirstResponder(captureView.textView)
+            }
+        } catch {
+            captureView.setInlineError("Couldn't update pin")
+            NSSound.beep()
+        }
+    }
+
+    private func toggleArchive(for row: CaptureResultRow) {
+        guard let thoughtID = row.thoughtID else { return }
+        do {
+            _ = try store.updateThought(
+                id: thoughtID,
+                update: ThoughtUpdate(archived: !row.archived)
+            )
+            refreshResultSession()
+            captureView.setInlineError(nil)
+            if let panel = window {
+                resizeWindowToMatchContent(panel, animate: true)
+                panel.makeFirstResponder(captureView.textView)
+            }
+        } catch {
+            captureView.setInlineError("Couldn't update archive")
+            NSSound.beep()
+        }
+    }
+
+    private func copyResult(_ row: CaptureResultRow) {
+        guard let reuseText = row.reuseText, !reuseText.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(reuseText, forType: .string)
+        captureView.setInlineError(nil)
+    }
+
+    private func endEditingMode() {
+        editingThoughtID = nil
+        captureView.setModeStatus(nil)
+    }
+
+    private func cancelEditingMode() -> Bool {
+        guard editingThoughtID != nil else { return false }
+        endEditingMode()
+        captureView.setInlineError(nil)
+        captureView.clearInput(keepResults: persistentResultsVisible)
+        if persistentResultsVisible {
+            captureView.focusResults()
+        }
+        if let panel = window {
+            resizeWindowToMatchContent(panel, animate: true)
+            panel.makeFirstResponder(captureView.textView)
+        }
+        return true
+    }
+
+    private func showResults(for command: CaptureResultCommand, focusedSurface: CaptureView.FocusedSurface = .input) {
         switch command {
         case .help:
             persistentResultsVisible = true
             persistentEmptyStateText = "No commands yet"
             resultSession = nil
-            captureView.showResultRows(Self.helpRows, hasMore: false, emptyStateText: persistentEmptyStateText)
+            captureView.showResultRows(
+                Self.helpRows,
+                hasMore: false,
+                headerText: headerText(for: .help),
+                emptyStateText: persistentEmptyStateText,
+                focusedSurface: focusedSurface
+            )
             if let panel = window {
                 resizeWindowToMatchContent(panel, animate: true)
                 panel.makeFirstResponder(captureView.textView)
             }
         default:
-            showThoughtResults(for: command)
+            showThoughtResults(for: command, focusedSurface: focusedSurface)
         }
     }
 
-    private func showThoughtResults(for command: ResultCommand) {
+    private func showThoughtResults(for command: CaptureResultCommand, focusedSurface: CaptureView.FocusedSurface = .input) {
         let thoughts: [Thought]
         do {
             thoughts = try store.fetchThoughts(query: makeThoughtQuery(for: command, offset: 0))
@@ -386,7 +675,13 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         resultSession = ResultSession(command: command, offset: thoughts.count, hasMore: hasMore)
         persistentResultsVisible = true
         persistentEmptyStateText = emptyStateText(for: command)
-        captureView.showResultRows(makeRows(from: thoughts), hasMore: hasMore, emptyStateText: persistentEmptyStateText)
+        captureView.showResultRows(
+            makeRows(from: thoughts),
+            hasMore: hasMore,
+            headerText: headerText(for: command, loadedCount: thoughts.count, hasMore: hasMore),
+            emptyStateText: persistentEmptyStateText,
+            focusedSurface: focusedSurface
+        )
         if let panel = window {
             resizeWindowToMatchContent(panel, animate: true)
             panel.makeFirstResponder(captureView.textView)
@@ -422,92 +717,43 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         captureView.appendResultRows(
             makeRows(from: thoughts),
             hasMore: session.hasMore,
+            headerText: headerText(for: session.command, loadedCount: session.offset, hasMore: session.hasMore),
             emptyStateText: persistentEmptyStateText
         )
         return true
     }
 
-    private func makeThoughtQuery(for command: ResultCommand, offset: Int) -> ThoughtQuery {
-        let fetchLimit: Int
-        switch command {
-        case .tail(let limit):
-            fetchLimit = min(resultPageSize, limit ?? resultPageSize)
-        default:
-            fetchLimit = resultPageSize
-        }
-
-        switch command {
-        case .tail:
-            return ThoughtQuery(
-                limit: fetchLimit,
-                offset: offset,
-                source: "human",
-                channel: "gui",
-                order: .descending
-            )
-        case .search(let query):
-            return ThoughtQuery(
-                limit: fetchLimit,
-                offset: offset,
-                search: query,
-                source: "human",
-                channel: "gui",
-                order: .descending
-            )
-        case .today:
-            let start = Calendar.current.startOfDay(for: Date())
-            let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start
-            return ThoughtQuery(
-                limit: fetchLimit,
-                offset: offset,
-                from: start,
-                to: end,
-                source: "human",
-                channel: "gui",
-                order: .descending
-            )
-        case .tag(let tag):
-            return ThoughtQuery(
-                limit: fetchLimit,
-                offset: offset,
-                tag: tag,
-                source: "human",
-                channel: "gui",
-                order: .descending
-            )
-        case .help:
-            return ThoughtQuery()
-        }
+    private func makeThoughtQuery(for command: CaptureResultCommand, offset: Int) -> ThoughtQuery {
+        CaptureResultQueryBuilder.thoughtQuery(
+            for: command,
+            offset: offset,
+            pageSize: resultPageSize
+        )
     }
 
-    private func hasMoreResults(for command: ResultCommand, fetchedCount: Int, offset: Int) -> Bool {
-        switch command {
-        case .tail(let limit):
-            let fetchLimit = min(resultPageSize, limit ?? resultPageSize)
-            if let limit {
-                return fetchedCount == fetchLimit && offset + fetchedCount < limit
-            }
-            return fetchedCount == fetchLimit
-        case .search, .today, .tag:
-            return fetchedCount == resultPageSize
-        case .help:
-            return false
-        }
+    private func hasMoreResults(for command: CaptureResultCommand, fetchedCount: Int, offset: Int) -> Bool {
+        CaptureResultQueryBuilder.hasMoreResults(
+            for: command,
+            fetchedCount: fetchedCount,
+            offset: offset,
+            pageSize: resultPageSize
+        )
     }
 
-    private func emptyStateText(for command: ResultCommand) -> String {
-        switch command {
-        case .tail:
-            return "No notes yet"
-        case .search:
-            return "No matching notes"
-        case .today:
-            return "Nothing captured today"
-        case .tag(let tag):
-            return "No notes tagged #\(tag)"
-        case .help:
-            return "No commands yet"
-        }
+    private func emptyStateText(for command: CaptureResultCommand) -> String {
+        CaptureResultQueryBuilder.emptyStateText(for: command)
+    }
+
+    private func headerText(for command: CaptureResultCommand) -> String {
+        CaptureResultQueryBuilder.headerText(for: command)
+    }
+
+    private func headerText(for command: CaptureResultCommand, loadedCount: Int, hasMore: Bool) -> String {
+        CaptureResultQueryBuilder.contextualHeaderText(
+            for: command,
+            loadedCount: loadedCount,
+            hasMore: hasMore
+        )
     }
 
     private func makeRows(from thoughts: [Thought]) -> [CaptureResultRow] {
@@ -515,39 +761,15 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
             CaptureResultRow(
                 title: $0.content,
                 detail: Self.resultMetaFormatter.string(from: $0.createdAt),
-                highlightsTags: true
+                highlightsTags: true,
+                reuseText: $0.content,
+                thoughtID: $0.id,
+                pinned: $0.pinned,
+                archived: $0.archived
             )
         }
     }
 
-    private static func isValidInlineTag(_ tag: String) -> Bool {
-        guard !tag.isEmpty else { return false }
-        return tag.range(of: #"^[\p{L}\p{N}_-]+$"#, options: .regularExpression) != nil
-    }
-}
-
-private enum SlashCommandParseResult {
-    case notCommand
-    case invalid
-    case handled(SlashCommand)
-}
-
-private enum SlashCommand {
-    case tail(limit: Int?)
-    case search(query: String)
-    case today
-    case tag(tag: String)
-    case help
-    case exit
-    case exactCommand(String)
-}
-
-private enum ResultCommand {
-    case tail(limit: Int?)
-    case search(query: String)
-    case today
-    case tag(tag: String)
-    case help
 }
 
 private extension CapturePanelController {
@@ -560,12 +782,14 @@ private extension CapturePanelController {
     }()
 
     static let helpRows: [CaptureResultRow] = [
-        CaptureResultRow(title: "/tail", detail: "Recent notes", highlightsTags: false),
-        CaptureResultRow(title: "/search <query>", detail: "Full-text search", highlightsTags: false),
-        CaptureResultRow(title: "/today", detail: "Today's notes", highlightsTags: false),
-        CaptureResultRow(title: "/tag <tag>", detail: "Browse by tag", highlightsTags: false),
-        CaptureResultRow(title: "/help", detail: "Command list", highlightsTags: false),
-        CaptureResultRow(title: "/exit", detail: "Close panel", highlightsTags: false)
+        CaptureResultRow(title: "/tail 20", detail: "Recent notes", highlightsTags: true, reuseText: "/tail 20", thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "/search onboarding", detail: "Full-text search", highlightsTags: true, reuseText: "/search ", thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "/today", detail: "Today's notes", highlightsTags: true, reuseText: "/today", thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "/tag thoughtstream", detail: "Browse by tag", highlightsTags: true, reuseText: "/tag ", thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "/archive", detail: "Archived notes", highlightsTags: true, reuseText: "/archive", thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "/hide", detail: "Collapse results", highlightsTags: true, reuseText: "/hide", thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "/help", detail: "Command list", highlightsTags: true, reuseText: "/help", thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "/exit", detail: "Close panel", highlightsTags: true, reuseText: "/exit", thoughtID: nil, pinned: false, archived: false)
     ]
 }
 

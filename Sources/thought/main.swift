@@ -59,10 +59,18 @@ struct CLI {
         if options.limit == nil {
             options.limit = 50
         }
-        let thoughts = try store.fetchRecentThoughts(
-            limit: options.limit ?? 50,
+        let query = ThoughtQueryPresets.recent(
+            limit: options.limit,
+            offset: options.offset,
+            from: options.from,
+            to: options.to,
+            archived: options.archived,
             source: options.source,
-            channel: options.channel
+            channel: options.channel,
+            order: .descending
+        )
+        let thoughts = try store.fetchThoughts(
+            query: query
         )
         let ordered = thoughts.sorted(by: { $0.createdAt < $1.createdAt })
         try ThoughtOutput.printThoughts(ordered, json: options.json)
@@ -76,7 +84,19 @@ struct CLI {
             }
             options.search = options.remaining.joined(separator: " ")
         }
-        let thoughts = try store.fetchThoughts(query: options.makeQuery(defaultOrder: .descending))
+        let thoughts = try store.fetchThoughts(
+            query: ThoughtQueryPresets.search(
+                options.search ?? "",
+                limit: options.limit,
+                offset: options.offset,
+                from: options.from,
+                to: options.to,
+                archived: options.archived,
+                source: options.source,
+                channel: options.channel,
+                order: .descending
+            )
+        )
         let ordered = thoughts.sorted(by: { $0.createdAt < $1.createdAt })
         try ThoughtOutput.printThoughts(ordered, json: options.json)
     }
@@ -246,12 +266,12 @@ struct CLI {
 
     static let help = """
     thought commands:
-      thought list [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--desc] [--json]
-      thought tail [N] [--source SOURCE] [--channel CHANNEL] [--json]
-      thought search <query> [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--json]
-      thought export [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL]
+      thought list [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived] [--desc] [--json]
+      thought tail [N] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived] [--json]
+      thought search <query> [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived] [--json]
+      thought export [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived]
       thought stats [--json]
-      thought days [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--json]
+      thought days [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived] [--json]
       thought add <text> [--source SOURCE] [--channel CHANNEL] [--tag TAG ...] [--archived] [--pinned]
       thought update <id> [--content TEXT] [--tag TAG ...] [--clear-tags] [--archived|--unarchived] [--pinned|--unpinned]
       thought get <id> [--json]
@@ -272,6 +292,7 @@ struct QueryOptions {
     var from: Date?
     var to: Date?
     var search: String?
+    var archived: Bool?
     var source: String?
     var channel: String?
     var descending = false
@@ -314,6 +335,10 @@ struct QueryOptions {
                     channel = args[index + 1]
                     index += 1
                 }
+            case "--archived":
+                archived = true
+            case "--unarchived":
+                archived = false
             case "--desc":
                 descending = true
             default:
@@ -334,6 +359,7 @@ struct QueryOptions {
             from: from,
             to: to,
             search: search,
+            archived: archived,
             source: source,
             channel: channel,
             order: descending ? .descending : defaultOrder

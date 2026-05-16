@@ -1,108 +1,102 @@
 # ThoughtStream
 
-Minimal macOS thought capture with a Spotlight-style overlay and a query-first CLI.
+ThoughtStream is a local-first macOS capture tool for short thoughts, plus a query-first CLI for later retrieval.
 
-See [ROADMAP.md](/Users/liyipeng/Documents/GitHub/thought-stream/ROADMAP.md) for the current improvement plan.
+It is designed around one constraint:
 
-## Targets
+- capture should stay fast
+- retrieval inside the overlay should stay lightweight
+- heavier review should happen later, through CLI or agent workflows
 
-- `ThoughtStreamApp`: background macOS app with a global hotkey (`Shift+Command+Space`)
-- `thought`: CLI for list/search/export/stats, intended for agent queries
+## What It Includes
 
-## Build
+- `ThoughtStreamApp`
+  - a Spotlight-style macOS overlay
+  - global hotkey: `Shift+Command+Space`
+  - fast capture, lightweight slash commands, and result reuse
+- `thought`
+  - a CLI for querying, exporting, updating, and deleting thoughts
+  - intended for scripting, automation, and agent workflows
+
+## Quick Start
+
+Build the app and CLI:
 
 ```bash
 env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build --product ThoughtStreamApp
 env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build --product thought
 ```
 
-## Run
-
-```bash
-./.build/debug/ThoughtStreamApp
-```
-
-Or build a native app bundle:
-
-```bash
-./scripts/build_app.sh
-open ./dist/ThoughtStream.app
-```
-
-Or build, install to `/Applications`, and launch in one step:
+Install and launch the macOS app:
 
 ```bash
 ./scripts/install_app.sh
 ```
 
-Press `Shift+Command+Space` to open the capture overlay.
+Or run the app directly:
 
-- `Enter` saves
+```bash
+./.build/debug/ThoughtStreamApp
+```
+
+## Basic Usage
+
+Open the overlay with `Shift+Command+Space`.
+
+- `Enter` saves a new thought
 - `Shift+Enter` inserts a newline
-- `Esc` cancels
+- `Esc` cancels or exits the current lightweight mode
+- `↓` opens recent notes
+- `Tab` moves between input and result browsing
 
-## CLI
+Some built-in slash commands:
 
-```bash
-./.build/debug/thought list --json
-./.build/debug/thought tail 100 --json
-./.build/debug/thought search clustering --json
-./.build/debug/thought export --from 7d --json
-./.build/debug/thought stats --json
-./.build/debug/thought days --limit 14 --json
-./.build/debug/thought get <id>
-./.build/debug/thought update <id> --content "updated text" --tag work
-./.build/debug/thought delete <id>
-```
+- `/tail`
+- `/search <query>`
+- `/today`
+- `/tag <tag>`
+- `/archive`
+- `/help`
+- `/exit`
 
-`thought add` exists for testing and automation, but the primary capture flow is the GUI.
+## Docs
 
-Useful agent filters:
+- [Getting Started](docs/getting-started.md)
+- [CLI Guide](docs/cli.md)
+- [Tags](docs/tags.md)
+- [Storage](docs/storage.md)
+- [Distribution](docs/distribution.md)
+- [Roadmap](ROADMAP.md)
 
-```bash
-./.build/debug/thought export --from 7d --source human --channel gui --json
-./.build/debug/thought search "retrieval ranking" --offset 100 --limit 100 --json
-./.build/debug/thought days --from 30d --json
-```
+## Why This Project Exists
 
-## Tags
+ThoughtStream is not trying to be a full notes app.
 
-ThoughtStream treats inline tags as a capture-time shortcut, not as the long-term source of truth.
+The goal is to keep capture friction very low, then let retrieval, review, and agent workflows happen later against a stable local store.
 
-- It supports only single-token tags such as `#work`, `#thoughtstream`, or `#code-review`.
-- Tags cannot contain spaces. For multi-word concepts, prefer kebab-case or snake_case, such as `#code-review` or `#weekly_review`.
-- On `add`, inline tags are automatically extracted into the structured `tags` field.
-- Extracted tags remain in the stored `content`.
-- On `update --content`, inline `#tag` tokens are parsed again, but only to add newly detected tags.
-- Updating `content` does not automatically remove existing tags.
-- Tags remain structured metadata after capture; editing tags later should not depend on rewriting the original note text.
+That means the project intentionally favors:
 
-Examples:
+- append-first capture
+- lightweight in-panel retrieval
+- local storage
+- explicit CLI access for downstream workflows
 
-```text
-干完现在的活 #工作
-```
+And it intentionally avoids:
 
-Stored as:
+- heavy organization during capture
+- turning the overlay into a workspace
+- pushing all workflows into the GUI
 
-- `content`: `干完现在的活 #工作`
-- `tags`: `["工作"]`
+## Current Status
 
-```text
-#生活 买一把香蕉
-```
+The current build already supports:
 
-Stored as:
+- native macOS overlay capture
+- query-oriented CLI
+- slash commands in the overlay
+- lightweight result reuse and GUI editing
+- release packaging scripts for `.app`, `.zip`, and `.dmg`
 
-- `content`: `#生活 买一把香蕉`
-- `tags`: `["生活"]`
+## License
 
-## Storage
-
-By default the app uses `~/Library/Application Support/ThoughtStream`.
-
-For development or agent runs, you can override storage with:
-
-```bash
-export THOUGHT_STREAM_HOME="$PWD/.thought-stream"
-```
+License is not set yet.

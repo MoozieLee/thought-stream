@@ -5,21 +5,42 @@ struct CaptureResultRow: Sendable {
     let title: String
     let detail: String
     let highlightsTags: Bool
+    let reuseText: String?
+    let thoughtID: String?
+    let pinned: Bool
+    let archived: Bool
 }
 
 @MainActor
 final class CaptureView: NSVisualEffectView {
+    enum FocusedSurface {
+        case input
+        case results
+    }
+
     let textView = CaptureTextView()
     var onSubmit: ((String) -> Void)?
     var onCancel: (() -> Void)?
     var onTextChange: ((String) -> Void)?
     var onRequestMoreTailResults: (() -> Bool)?
+    var onSelectedResultAction: ((CaptureResultRow) -> Void)?
+    var onSelectedResultPinToggle: ((CaptureResultRow) -> Void)?
+    var onSelectedResultArchiveToggle: ((CaptureResultRow) -> Void)?
+    var onSelectedResultCopy: ((CaptureResultRow) -> Void)?
+    var onSelectedResultEdit: ((CaptureResultRow) -> Void)?
+    var onRequestTailFromKeyboard: (() -> Bool)?
+    var onCollapseResults: (() -> Void)?
+    var onInputHistoryPrevious: (() -> Bool)?
+    var onInputHistoryNext: (() -> Bool)?
 
     private let compactPanelHeight: CGFloat = 78
     private let fieldHeight: CGFloat = 30
     private let cornerRadius: CGFloat = 28
     private let dragThreshold: CGFloat = 3
+    private let inlineErrorHeight: CGFloat = 16
+    private let inlineErrorTopSpacing: CGFloat = 6
     private let resultsTopSpacing: CGFloat = 14
+    private let resultsHeaderBottomSpacing: CGFloat = 10
     private let resultsBottomSpacing: CGFloat = 18
     private let resultsSpacing: CGFloat = 8
     private let visibleTailRowCount: Int = 6
@@ -81,6 +102,26 @@ final class CaptureView: NSVisualEffectView {
         return view
     }()
 
+    private let inlineErrorLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "")
+        label.textColor = NSColor.systemOrange.blended(withFraction: 0.15, of: .labelColor) ?? .systemOrange
+        label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
+    private let modeStatusLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "")
+        label.textColor = NSColor.secondaryLabelColor
+        label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
     private let resultsContainer: NSView = {
         let view = NSView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -105,15 +146,42 @@ final class CaptureView: NSVisualEffectView {
         return label
     }()
 
+    private let resultsHeaderLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "")
+        label.textColor = NSColor.secondaryLabelColor
+        label.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        label.alignment = .left
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
+    private let resultsHintLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "Enter to reuse")
+        label.textColor = NSColor.tertiaryLabelColor
+        label.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        label.alignment = .right
+        label.lineBreakMode = .byTruncatingHead
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
     private var heightConstraint: NSLayoutConstraint?
     private var resultsContainerHeightConstraint: NSLayoutConstraint?
+    private var resultsStackTopConstraint: NSLayoutConstraint?
+    private var dividerTopConstraint: NSLayoutConstraint?
     private var showingResults = false
     private var autocompleteSuggestion: String?
+    private var inlineErrorMessage: String?
+    private var modeStatusMessage: String?
     private var isApplyingTagHighlighting = false
     private var selectedResultIndex: Int?
     private var resultRows: [CaptureResultRow] = []
     private var resultsHaveMore = false
     private var visibleResultStartIndex = 0
+    private var focusedSurface: FocusedSurface = .input
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -141,11 +209,45 @@ final class CaptureView: NSVisualEffectView {
         textView.onResultSelectionMove = { [weak self] delta in
             self?.moveResultSelection(by: delta) ?? false
         }
+        textView.onResultAction = { [weak self] in
+            self?.activateSelectedResult() ?? false
+        }
+        textView.onResultPinToggle = { [weak self] in
+            self?.toggleSelectedResultPin() ?? false
+        }
+        textView.onResultArchiveToggle = { [weak self] in
+            self?.toggleSelectedResultArchive() ?? false
+        }
+        textView.onResultCopy = { [weak self] in
+            self?.copySelectedResult() ?? false
+        }
+        textView.onResultEdit = { [weak self] in
+            self?.editSelectedResult() ?? false
+        }
+        textView.onInputHistoryPrevious = { [weak self] in
+            self?.onInputHistoryPrevious?() ?? false
+        }
+        textView.onInputHistoryNext = { [weak self] in
+            self?.onInputHistoryNext?() ?? false
+        }
+        textView.onToggleResultsFocus = { [weak self] in
+            self?.toggleResultsFocus() ?? false
+        }
+        textView.onOpenTail = { [weak self] in
+            guard let self else { return false }
+            let hasInput = !self.textView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            guard !hasInput, !self.showingResults else { return false }
+            return self.onRequestTailFromKeyboard?() ?? false
+        }
+        textView.onEscapeAction = { [weak self] in
+            self?.handleEscapeAction() ?? false
+        }
         textView.delegate = self
         textView.font = NSFont.systemFont(ofSize: 22, weight: .regular)
         textView.textColor = baseTextColor
         textView.insertionPointColor = baseTextColor
         textView.drawsBackground = false
+        textView.allowsUndo = true
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -170,6 +272,8 @@ final class CaptureView: NSVisualEffectView {
         textContainer.addSubview(inputScrollView)
         textContainer.addSubview(placeholderLabel)
 
+        resultsContainer.addSubview(resultsHeaderLabel)
+        resultsContainer.addSubview(resultsHintLabel)
         resultsContainer.addSubview(resultsStackView)
         resultsContainer.addSubview(emptyStateLabel)
         resultsStackView.spacing = resultsSpacing
@@ -179,6 +283,8 @@ final class CaptureView: NSVisualEffectView {
 
         addSubview(searchIconView)
         addSubview(textContainer)
+        addSubview(inlineErrorLabel)
+        addSubview(modeStatusLabel)
         addSubview(dividerView)
         addSubview(resultsContainer)
         addSubview(clearButton)
@@ -187,6 +293,10 @@ final class CaptureView: NSVisualEffectView {
         self.heightConstraint = heightConstraint
         let resultsHeightConstraint = resultsContainer.heightAnchor.constraint(equalToConstant: 0)
         self.resultsContainerHeightConstraint = resultsHeightConstraint
+        let resultsStackTopConstraint = resultsStackView.topAnchor.constraint(equalTo: resultsHeaderLabel.bottomAnchor, constant: resultsHeaderBottomSpacing)
+        self.resultsStackTopConstraint = resultsStackTopConstraint
+        let dividerTopConstraint = dividerView.topAnchor.constraint(equalTo: topAnchor, constant: compactPanelHeight)
+        self.dividerTopConstraint = dividerTopConstraint
 
         NSLayoutConstraint.activate([
             heightConstraint,
@@ -219,9 +329,19 @@ final class CaptureView: NSVisualEffectView {
             placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textContainer.trailingAnchor),
             placeholderLabel.centerYAnchor.constraint(equalTo: textContainer.centerYAnchor),
 
+            inlineErrorLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
+            inlineErrorLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+            inlineErrorLabel.topAnchor.constraint(equalTo: textContainer.bottomAnchor, constant: inlineErrorTopSpacing),
+            inlineErrorLabel.heightAnchor.constraint(equalToConstant: inlineErrorHeight),
+
+            modeStatusLabel.leadingAnchor.constraint(equalTo: textContainer.leadingAnchor),
+            modeStatusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+            modeStatusLabel.topAnchor.constraint(equalTo: textContainer.bottomAnchor, constant: inlineErrorTopSpacing),
+            modeStatusLabel.heightAnchor.constraint(equalToConstant: inlineErrorHeight),
+
             dividerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             dividerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            dividerView.topAnchor.constraint(equalTo: topAnchor, constant: compactPanelHeight),
+            dividerTopConstraint,
             dividerView.heightAnchor.constraint(equalToConstant: 1),
 
             resultsContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
@@ -229,9 +349,17 @@ final class CaptureView: NSVisualEffectView {
             resultsContainer.topAnchor.constraint(equalTo: dividerView.bottomAnchor, constant: resultsTopSpacing),
             resultsHeightConstraint,
 
+            resultsHeaderLabel.leadingAnchor.constraint(equalTo: resultsContainer.leadingAnchor, constant: 2),
+            resultsHeaderLabel.trailingAnchor.constraint(lessThanOrEqualTo: resultsHintLabel.leadingAnchor, constant: -12),
+            resultsHeaderLabel.topAnchor.constraint(equalTo: resultsContainer.topAnchor),
+
+            resultsHintLabel.trailingAnchor.constraint(equalTo: resultsContainer.trailingAnchor, constant: -2),
+            resultsHintLabel.centerYAnchor.constraint(equalTo: resultsHeaderLabel.centerYAnchor),
+            resultsHintLabel.leadingAnchor.constraint(greaterThanOrEqualTo: resultsContainer.leadingAnchor, constant: 160),
+
             resultsStackView.leadingAnchor.constraint(equalTo: resultsContainer.leadingAnchor),
             resultsStackView.trailingAnchor.constraint(equalTo: resultsContainer.trailingAnchor),
-            resultsStackView.topAnchor.constraint(equalTo: resultsContainer.topAnchor),
+            resultsStackTopConstraint,
 
             emptyStateLabel.leadingAnchor.constraint(equalTo: resultsContainer.leadingAnchor),
             emptyStateLabel.trailingAnchor.constraint(equalTo: resultsContainer.trailingAnchor),
@@ -264,10 +392,13 @@ final class CaptureView: NSVisualEffectView {
     func reset() {
         textView.string = ""
         autocompleteSuggestion = nil
+        inlineErrorMessage = nil
+        modeStatusMessage = nil
         resultRows = []
         resultsHaveMore = false
         selectedResultIndex = nil
         visibleResultStartIndex = 0
+        focusedSurface = .input
         hideResults()
         applySyntaxHighlighting()
         updateChrome()
@@ -276,6 +407,7 @@ final class CaptureView: NSVisualEffectView {
     @objc private func clearText() {
         textView.string = ""
         autocompleteSuggestion = nil
+        inlineErrorMessage = nil
         hideResults()
         applySyntaxHighlighting()
         updateChrome()
@@ -286,29 +418,58 @@ final class CaptureView: NSVisualEffectView {
     func clearInput(keepResults: Bool) {
         textView.string = ""
         autocompleteSuggestion = nil
+        inlineErrorMessage = nil
         if !keepResults {
             hideResults()
         }
+        focusedSurface = .input
         applySyntaxHighlighting()
         updateChrome()
         focusTextInput()
         onTextChange?(textView.string)
     }
 
-    func showResultRows(_ rows: [CaptureResultRow], hasMore: Bool, emptyStateText: String) {
+    func populateDraft(_ text: String, hideResults: Bool = true) {
+        textView.string = text
+        autocompleteSuggestion = nil
+        inlineErrorMessage = nil
+        if hideResults {
+            self.hideResults()
+        }
+        focusedSurface = .input
+        applySyntaxHighlighting()
+        updateChrome()
+        focusTextInput()
+        onTextChange?(textView.string)
+    }
+
+    func showResultRows(
+        _ rows: [CaptureResultRow],
+        hasMore: Bool,
+        headerText: String?,
+        emptyStateText: String,
+        focusedSurface: FocusedSurface = .input
+    ) {
         resultRows = rows
         resultsHaveMore = hasMore
         selectedResultIndex = rows.isEmpty ? nil : 0
         visibleResultStartIndex = 0
-        renderResults(emptyStateText: emptyStateText)
+        self.focusedSurface = focusedSurface
+        renderResults(headerText: headerText, emptyStateText: emptyStateText)
     }
 
-    func appendResultRows(_ rows: [CaptureResultRow], hasMore: Bool, emptyStateText: String) {
+    func focusResults() {
+        guard showingResults, !resultRows.isEmpty else { return }
+        focusedSurface = .results
+        renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+    }
+
+    func appendResultRows(_ rows: [CaptureResultRow], hasMore: Bool, headerText: String?, emptyStateText: String) {
         if !rows.isEmpty {
             resultRows.append(contentsOf: rows)
         }
         resultsHaveMore = hasMore
-        renderResults(emptyStateText: emptyStateText)
+        renderResults(headerText: headerText, emptyStateText: emptyStateText)
     }
 
     func hideResults() {
@@ -319,8 +480,10 @@ final class CaptureView: NSVisualEffectView {
         resultsHaveMore = false
         selectedResultIndex = nil
         visibleResultStartIndex = 0
+        focusedSurface = .input
         dividerView.isHidden = true
         resultsContainer.isHidden = true
+        resultsHeaderLabel.isHidden = true
         resultsStackView.isHidden = true
         emptyStateLabel.isHidden = true
         resultsContainerHeightConstraint?.constant = 0
@@ -333,6 +496,10 @@ final class CaptureView: NSVisualEffectView {
         showingResults
     }
 
+    var isInputSurfaceFocused: Bool {
+        focusedSurface == .input
+    }
+
     var preferredPanelHeight: CGFloat {
         heightConstraint?.constant ?? compactPanelHeight
     }
@@ -340,6 +507,22 @@ final class CaptureView: NSVisualEffectView {
     func setAutocompleteSuggestion(_ suggestion: String?) {
         autocompleteSuggestion = suggestion
         updateChrome()
+    }
+
+    func setInlineError(_ message: String?) {
+        inlineErrorMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines)
+        updateChrome()
+        if showingResults {
+            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+        }
+    }
+
+    func setModeStatus(_ message: String?) {
+        modeStatusMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines)
+        updateChrome()
+        if showingResults {
+            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+        }
     }
 
     @discardableResult
@@ -359,9 +542,13 @@ final class CaptureView: NSVisualEffectView {
         }
     }
 
-    private func renderResults(emptyStateText: String) {
+    private func renderResults(headerText: String?, emptyStateText: String) {
         clearResultRows()
+        let hasHeader = !(headerText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        resultsHeaderLabel.stringValue = headerText ?? ""
         emptyStateLabel.stringValue = emptyStateText
+        resultsStackTopConstraint?.constant = hasHeader ? resultsHeaderBottomSpacing : -16
+        let hasInput = !textView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         let visibleRows: ArraySlice<CaptureResultRow>
         if resultRows.isEmpty {
@@ -376,7 +563,7 @@ final class CaptureView: NSVisualEffectView {
             let absoluteIndex = visibleRows.startIndex + offset
             let rowView = TailResultRowView(
                 row: row,
-                highlighted: absoluteIndex == selectedResultIndex
+                highlighted: !hasInput && focusedSurface == .results && absoluteIndex == selectedResultIndex
             )
             resultsStackView.addArrangedSubview(rowView)
         }
@@ -388,14 +575,22 @@ final class CaptureView: NSVisualEffectView {
             let visibleCount = CGFloat(visibleRows.count)
             resultsHeight = visibleCount * 48 + max(0, visibleCount - 1) * resultsSpacing
         }
+        let totalResultsHeight = resultsHeight + (hasHeader ? resultsHeaderBottomSpacing + 16 : 0)
 
         showingResults = true
         dividerView.isHidden = false
         resultsContainer.isHidden = false
+        resultsHeaderLabel.isHidden = !hasHeader
+        resultsHintLabel.isHidden = !hasHeader || resultRows.isEmpty
+        let resultsHint = resultsHintText(hasInput: hasInput, headerText: headerText ?? "")
+        resultsHintLabel.stringValue = resultsHint
+        if resultsHint.isEmpty {
+            resultsHintLabel.isHidden = true
+        }
         resultsStackView.isHidden = visibleRows.isEmpty
         emptyStateLabel.isHidden = !visibleRows.isEmpty
-        resultsContainerHeightConstraint?.constant = resultsHeight
-        heightConstraint?.constant = compactPanelHeight + 1 + resultsTopSpacing + resultsHeight + resultsBottomSpacing
+        resultsContainerHeightConstraint?.constant = totalResultsHeight
+        heightConstraint?.constant = (dividerTopConstraint?.constant ?? compactPanelHeight) + 1 + resultsTopSpacing + totalResultsHeight + resultsBottomSpacing
         needsLayout = true
         layoutSubtreeIfNeeded()
     }
@@ -406,7 +601,17 @@ final class CaptureView: NSVisualEffectView {
         guard !hasInput else { return false }
         guard !resultRows.isEmpty else { return false }
 
+        if focusedSurface != .results {
+            focusedSurface = .results
+            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+            return true
+        }
+
         let current = selectedResultIndex ?? 0
+        if delta < 0, current == 0 {
+            focusTextInput()
+            return true
+        }
         var next = current + delta
 
         if delta > 0, next >= resultRows.count, resultsHaveMore {
@@ -425,8 +630,67 @@ final class CaptureView: NSVisualEffectView {
         } else if next >= visibleResultStartIndex + visibleTailRowCount {
             visibleResultStartIndex = next - visibleTailRowCount + 1
         }
-        renderResults(emptyStateText: emptyStateLabel.stringValue)
+        renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
         return true
+    }
+
+    private func activateSelectedResult() -> Bool {
+        guard focusedSurface == .results else { return false }
+        guard showingResults else { return false }
+        guard let selectedResultIndex, resultRows.indices.contains(selectedResultIndex) else { return false }
+        let row = resultRows[selectedResultIndex]
+        onSelectedResultAction?(row)
+        return true
+    }
+
+    private func toggleSelectedResultPin() -> Bool {
+        guard focusedSurface == .results else { return false }
+        guard showingResults else { return false }
+        guard let selectedResultIndex, resultRows.indices.contains(selectedResultIndex) else { return false }
+        let row = resultRows[selectedResultIndex]
+        guard row.thoughtID != nil else { return false }
+        onSelectedResultPinToggle?(row)
+        return true
+    }
+
+    private func toggleSelectedResultArchive() -> Bool {
+        guard focusedSurface == .results else { return false }
+        guard showingResults else { return false }
+        guard let selectedResultIndex, resultRows.indices.contains(selectedResultIndex) else { return false }
+        let row = resultRows[selectedResultIndex]
+        guard row.thoughtID != nil else { return false }
+        onSelectedResultArchiveToggle?(row)
+        return true
+    }
+
+    private func copySelectedResult() -> Bool {
+        guard focusedSurface == .results else { return false }
+        guard showingResults else { return false }
+        guard let selectedResultIndex, resultRows.indices.contains(selectedResultIndex) else { return false }
+        let row = resultRows[selectedResultIndex]
+        guard row.reuseText != nil else { return false }
+        onSelectedResultCopy?(row)
+        return true
+    }
+
+    private func editSelectedResult() -> Bool {
+        guard focusedSurface == .results else { return false }
+        guard showingResults else { return false }
+        guard let selectedResultIndex, resultRows.indices.contains(selectedResultIndex) else { return false }
+        let row = resultRows[selectedResultIndex]
+        guard row.thoughtID != nil else { return false }
+        onSelectedResultEdit?(row)
+        return true
+    }
+
+    private func handleEscapeAction() -> Bool {
+        if focusedSurface == .results {
+            focusedSurface = .input
+            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+            focusTextInput()
+            return true
+        }
+        return false
     }
 
     private func updateChrome() {
@@ -446,12 +710,24 @@ final class CaptureView: NSVisualEffectView {
             }
             return true
         }()
+        let hasInlineError = !(inlineErrorMessage?.isEmpty ?? true)
+        let hasModeStatus = !(modeStatusMessage?.isEmpty ?? true)
+        let showsStatusLine = hasInlineError || hasModeStatus
+        let topContentHeight = compactPanelHeight + (showsStatusLine ? inlineErrorTopSpacing + inlineErrorHeight : 0)
 
         placeholderLabel.isHidden = shouldHidePlaceholder
         clearButton.isHidden = !hasCommittedText
         clearButton.alphaValue = hasCommittedText ? 1 : 0
         autocompleteGhostLabel.isHidden = !shouldShowAutocomplete
         autocompleteGhostLabel.stringValue = shouldShowAutocomplete ? (autocompleteSuggestion ?? "") : ""
+        inlineErrorLabel.isHidden = !hasInlineError
+        inlineErrorLabel.stringValue = inlineErrorMessage ?? ""
+        modeStatusLabel.isHidden = hasInlineError || !hasModeStatus
+        modeStatusLabel.stringValue = modeStatusMessage ?? ""
+        dividerTopConstraint?.constant = topContentHeight
+        if !showingResults {
+            heightConstraint?.constant = topContentHeight
+        }
         needsLayout = true
     }
 
@@ -469,6 +745,10 @@ final class CaptureView: NSVisualEffectView {
             .foregroundColor: baseTextColor,
             .backgroundColor: NSColor.clear
         ]
+
+        let undoManager = textView.undoManager
+        undoManager?.disableUndoRegistration()
+        defer { undoManager?.enableUndoRegistration() }
 
         textStorage.beginEditing()
         textStorage.setAttributes(baseAttributes, range: fullRange)
@@ -494,7 +774,7 @@ final class CaptureView: NSVisualEffectView {
         let trimmedLeading = text.drop(while: \.isWhitespace)
         guard trimmedLeading.first == "/" else { return [] }
 
-        let knownCommands = ["/tail", "/search", "/today", "/tag", "/help", "/exit"]
+        let knownCommands = ["/tail", "/search", "/today", "/tag", "/archive", "/hide", "/help", "/exit"]
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
         guard let regex = try? NSRegularExpression(pattern: #"^\s*(/\S+)"#) else { return [] }
@@ -527,9 +807,41 @@ final class CaptureView: NSVisualEffectView {
     }
 
     private func focusTextInput() {
+        focusedSurface = .input
         window?.makeFirstResponder(textView)
         let end = textView.string.utf16.count
         textView.setSelectedRange(NSRange(location: end, length: 0))
+        if showingResults {
+            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+        }
+    }
+
+    private func toggleResultsFocus() -> Bool {
+        guard showingResults else { return false }
+        let hasInput = !textView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard !hasInput, !resultRows.isEmpty else { return false }
+
+        focusedSurface = focusedSurface == .results ? .input : .results
+        if focusedSurface == .input {
+            focusTextInput()
+        } else {
+            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+        }
+        return true
+    }
+
+    private func resultsHintText(hasInput: Bool, headerText: String) -> String {
+        guard !resultRows.isEmpty else { return "" }
+        guard !hasInput else { return "" }
+        switch focusedSurface {
+        case .input:
+            return "Tab to browse"
+        case .results:
+            if headerText == "Commands" {
+                return "Enter to insert · Esc to return"
+            }
+            return "Enter to reuse · ⌘E to edit · Esc to return"
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -577,11 +889,13 @@ extension CaptureView: CaptureTextViewDelegate, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        focusedSurface = .input
         if !textView.hasMarkedText() {
             applySyntaxHighlighting()
         }
         updateChrome()
         onTextChange?(textView.string)
+        textView.breakUndoCoalescing()
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -604,6 +918,16 @@ final class CaptureTextView: NSTextView {
     var onBackgroundMouseDown: ((NSEvent) -> Void)?
     var onAutocompleteRequest: (() -> Bool)?
     var onResultSelectionMove: ((Int) -> Bool)?
+    var onResultAction: (() -> Bool)?
+    var onResultPinToggle: (() -> Bool)?
+    var onResultArchiveToggle: (() -> Bool)?
+    var onResultCopy: (() -> Bool)?
+    var onResultEdit: (() -> Bool)?
+    var onOpenTail: (() -> Bool)?
+    var onEscapeAction: (() -> Bool)?
+    var onToggleResultsFocus: (() -> Bool)?
+    var onInputHistoryPrevious: (() -> Bool)?
+    var onInputHistoryNext: (() -> Bool)?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -625,19 +949,55 @@ final class CaptureTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if shouldUseStandardEditingShortcut(for: event) {
+            super.keyDown(with: event)
+            return
+        }
+
         switch Int(event.keyCode) {
+        case 8:
+            if event.modifierFlags.contains(.command), onResultCopy?() == true {
+                return
+            }
+            super.keyDown(with: event)
+        case 14:
+            if event.modifierFlags.contains(.command), onResultEdit?() == true {
+                return
+            }
+            super.keyDown(with: event)
         case 36:
             if event.modifierFlags.contains(.shift) {
                 super.keyDown(with: event)
+            } else if onResultAction?() == true {
+                return
             } else {
                 captureDelegate?.captureTextViewDidSubmit(self)
             }
+        case 35:
+            if event.modifierFlags.contains(.command), onResultPinToggle?() == true {
+                return
+            }
+            super.keyDown(with: event)
+        case 51:
+            if event.modifierFlags.contains(.command), onResultArchiveToggle?() == true {
+                return
+            }
+            super.keyDown(with: event)
         case 125:
+            if onInputHistoryNext?() == true {
+                return
+            }
+            if onOpenTail?() == true {
+                return
+            }
             if onResultSelectionMove?(1) == true {
                 return
             }
             super.keyDown(with: event)
         case 126:
+            if onInputHistoryPrevious?() == true {
+                return
+            }
             if onResultSelectionMove?(-1) == true {
                 return
             }
@@ -646,11 +1006,78 @@ final class CaptureTextView: NSTextView {
             if onAutocompleteRequest?() == true {
                 return
             }
+            if onToggleResultsFocus?() == true {
+                return
+            }
             super.keyDown(with: event)
         case 53:
+            if onEscapeAction?() == true {
+                return
+            }
             captureDelegate?.captureTextViewDidCancel(self)
         default:
             super.keyDown(with: event)
+        }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.command) else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        switch key {
+        case "a":
+            selectAll(nil)
+            return true
+        case "v":
+            paste(nil)
+            return true
+        case "z":
+            if event.modifierFlags.contains(.shift) {
+                undoManager?.redo()
+            } else {
+                undoManager?.undo()
+            }
+            return true
+        case "c":
+            guard shouldUseStandardEditingShortcut(for: event) else {
+                return super.performKeyEquivalent(with: event)
+            }
+            copy(nil)
+            return true
+        case "x":
+            guard shouldUseStandardEditingShortcut(for: event) else {
+                return super.performKeyEquivalent(with: event)
+            }
+            cut(nil)
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    private func shouldUseStandardEditingShortcut(for event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.command) else { return false }
+
+        let keyCode = Int(event.keyCode)
+        switch keyCode {
+        case 0: // Cmd+A
+            return true
+        case 9: // Cmd+V
+            return true
+        case 6: // Cmd+Z
+            return true
+        case 7, 8: // Cmd+X / Cmd+C
+            if hasMarkedText() {
+                return true
+            }
+            if selectedRange().length > 0 {
+                return true
+            }
+            return !string.isEmpty
+        default:
+            return false
         }
     }
 
@@ -757,15 +1184,32 @@ final class TailResultRowView: NSView {
         metaLabel.lineBreakMode = .byTruncatingTail
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        let pinImageView = NSImageView()
+        pinImageView.image = NSImage(
+            systemSymbolName: "pin.fill",
+            accessibilityDescription: "Pinned"
+        )?.withSymbolConfiguration(.init(pointSize: 14, weight: .medium))
+        pinImageView.contentTintColor = .secondaryLabelColor
+        pinImageView.translatesAutoresizingMaskIntoConstraints = false
+        pinImageView.isHidden = !row.pinned
+        pinImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        pinImageView.setContentHuggingPriority(.required, for: .horizontal)
+
         addSubview(titleLabel)
+        addSubview(pinImageView)
         addSubview(metaLabel)
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 48),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            pinImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            pinImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pinImageView.widthAnchor.constraint(equalToConstant: 14),
+            pinImageView.heightAnchor.constraint(equalToConstant: 14),
+
+            titleLabel.leadingAnchor.constraint(equalTo: pinImageView.trailingAnchor, constant: 8),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            metaLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 14),
+            metaLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 12),
             metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             metaLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
@@ -787,6 +1231,7 @@ final class TailResultRowView: NSView {
         let baseFont = NSFont.systemFont(ofSize: 18, weight: .medium)
         let baseColor = NSColor.labelColor
         let tagColor = NSColor.controlAccentColor.blended(withFraction: 0.3, of: .labelColor) ?? .labelColor
+        let slashCommandColor = NSColor.systemOrange.blended(withFraction: 0.15, of: .labelColor) ?? .systemOrange
         let attributed = NSMutableAttributedString(
             string: content,
             attributes: [
@@ -797,6 +1242,15 @@ final class TailResultRowView: NSView {
 
         let nsContent = content as NSString
         let range = NSRange(location: 0, length: nsContent.length)
+        if let slashRegex = try? NSRegularExpression(pattern: #"^\s*(/\S+)"#),
+           let match = slashRegex.firstMatch(in: content, range: range),
+           match.numberOfRanges > 1 {
+            let commandRange = match.range(at: 1)
+            if commandRange.location != NSNotFound {
+                attributed.addAttribute(.foregroundColor, value: slashCommandColor, range: commandRange)
+            }
+        }
+
         let pattern = #"(?:(?<=^)|(?<=\s))(#(?:[\p{L}\p{N}_-]+))(?=$|[\s,.;:!?，。；：！？])"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return attributed

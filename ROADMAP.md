@@ -29,6 +29,7 @@ That means future changes should be evaluated against one question:
 ## Highest Priority
 
 ### 1. Result Context Header
+Status: done
 
 The result panel should show which mode the user is currently in.
 
@@ -47,6 +48,7 @@ Why this matters:
 - a lightweight header improves clarity without making the overlay feel heavy
 
 ### 2. Inline Error Feedback
+Status: done
 
 Invalid commands currently fail too quietly in some cases.
 
@@ -69,42 +71,40 @@ Recommended direction:
 - clear the error automatically when the input becomes valid
 
 ### 3. Selected Result Action
+Status: done
 
-The overlay already supports moving through results with `Up` and `Down`, but selected items still do not have a strong action model.
+Current state:
 
-Recommended next action:
-
-- `Enter` on a selected result should perform one simple action
-
-Good first options:
-
-- copy note content
-- paste note content back into the input field
-- open a lightweight detail view
-
-This should stay simple. The goal is quick reuse, not full note editing inside the capture surface.
+- `Up` and `Down` can select results when the input is empty
+- `Enter` reuses the selected note as a new draft
+- `Cmd+C` copies the selected note content
+- `Cmd+P` toggles pin on the selected note
+- `Cmd+Delete` toggles archive on the selected note
 
 ### 4. Tests for Query and Slash Behavior
+Status: done
 
 The project now has enough stateful behavior that the lack of tests is becoming a real risk.
 
-Most important areas:
+Covered now:
 
 - slash command parsing
+- slash inline error behavior
 - tag parsing
-- paged `/tail` and search loading
+- paged `/tail` and search query behavior
 - result refresh after saving a new thought
 - date-window behavior for `/today`
 
-Priority files:
+Primary test files:
 
-- `Sources/ThoughtStreamCore/ThoughtStore.swift`
-- `Sources/ThoughtStreamCore/ThoughtTagParsing.swift`
-- `Sources/ThoughtStreamApp/CapturePanelController.swift`
+- `Tests/ThoughtStreamCoreTests/CaptureQueriesTests.swift`
+- `Tests/ThoughtStreamCoreTests/ThoughtTagParsingTests.swift`
+- `Tests/ThoughtStreamCoreTests/ThoughtStoreQueryTests.swift`
 
 ## Medium Priority
 
 ### 5. Shared Query Presets
+Status: done
 
 GUI and CLI already share the same storage layer, but common query presets still live mostly in the UI controller.
 
@@ -126,7 +126,14 @@ Why this matters:
 - makes agent workflows more stable
 - keeps command behavior consistent over time
 
+Current state:
+
+- reusable query presets now live in `ThoughtStreamCore`
+- GUI retrieval uses shared preset builders instead of hand-rolled controller logic
+- CLI `tail` and `search` also call the same shared query presets
+
 ### 6. Better `/help`
+Status: done
 
 `/help` is currently functional, but still looks like a plain result list.
 
@@ -139,6 +146,7 @@ Possible improvements:
 This should still feel like a small command reference, not a full command palette.
 
 ### 7. Better Empty States and Mode Messaging
+Status: done
 
 The app already shows different empty states, but they can be improved.
 
@@ -179,31 +187,34 @@ Why this matters:
 This is only worth doing once tag-centric workflows become common.
 
 ### 9. GUI Editing Flow
+Status: done
 
-The data model already includes `updatedAt`, but GUI editing of existing thoughts is still missing.
+The overlay now supports a minimal edit flow for existing thoughts without turning the capture surface into a full note editor.
 
 Current state:
 
-- CLI can update existing thoughts
-- GUI is still optimized for capture and lightweight retrieval
-
-Decision to make later:
-
-- either keep GUI as capture-only on purpose
-- or add a minimal edit flow without turning it into a full note app
+- select a result and press `Cmd+E` to enter editing
+- the input shows `Editing note · Enter to save · Esc to cancel`
+- `Enter` updates the existing thought
+- `Esc` exits editing and returns to result browsing
+- slash commands and normal reuse paths leave editing mode cleanly
 
 ### 10. Packaging and Distribution
+Status: partial
 
 The app is already usable locally, but publishing still needs real packaging work.
 
-Future needs:
+Current state:
 
-- signed app bundle
-- notarization
-- cleaner installation flow
-- clearer first-run guidance
+- release packaging scripts now exist for:
+  - signed app bundle preparation
+  - ZIP release artifacts
+  - drag-install DMG creation
+  - bundle validation
+- first-run guidance is now documented
+- notarization is scriptable through `notarytool` when credentials are available
 
-This becomes important once the project is shared more broadly.
+Still depends on real Apple distribution credentials for a fully signed and notarized public release.
 
 ## Guardrails
 

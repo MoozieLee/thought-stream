@@ -25,6 +25,10 @@ let package = Package(
         .executableTarget(
             name: "thought",
             dependencies: ["ThoughtStreamCore"]
+        ),
+        .testTarget(
+            name: "ThoughtStreamCoreTests",
+            dependencies: ["ThoughtStreamCore"]
         )
     ]
 )
