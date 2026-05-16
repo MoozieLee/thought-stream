@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ThoughtStreamApp
+        run: swift build --product ThoughtStreamApp
+
+      - name: Build thought CLI
+        run: swift build --product thought
+
+      - name: Run tests
+        run: swift test

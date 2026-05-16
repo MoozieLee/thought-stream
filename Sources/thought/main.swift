@@ -13,6 +13,7 @@ enum CLIError: Error, LocalizedError {
 }
 
 struct CLI {
+    private static let version = "0.1.0"
     let store = ThoughtStore.shared
 
     func run(arguments: [String]) throws {
@@ -43,6 +44,8 @@ struct CLI {
             try delete(args: Array(arguments.dropFirst()))
         case "today":
             try today(args: Array(arguments.dropFirst()))
+        case "version", "--version", "-V":
+            print(Self.version)
         case "help", "--help", "-h":
             print(Self.help)
         default:

@@ -92,6 +92,9 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         captureView.onSelectedResultEdit = { [weak self] row in
             self?.beginEditing(row)
         }
+        captureView.onSelectedResultDelete = { [weak self] row in
+            self?.deleteThought(row)
+        }
         captureView.onRequestTailFromKeyboard = { [weak self] in
             self?.showTailFromKeyboard() ?? false
         }
@@ -572,6 +575,18 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         if let panel = window {
             resizeWindowToMatchContent(panel, animate: true)
             panel.makeFirstResponder(captureView.textView)
+        }
+    }
+
+    private func deleteThought(_ row: CaptureResultRow) {
+        guard let id = row.thoughtID else { return }
+        do {
+            try store.deleteThought(id: id)
+            if persistentResultsVisible {
+                refreshResultSession()
+            }
+        } catch {
+            NSSound.beep()
         }
     }
 

@@ -28,6 +28,7 @@ final class CaptureView: NSVisualEffectView {
     var onSelectedResultArchiveToggle: ((CaptureResultRow) -> Void)?
     var onSelectedResultCopy: ((CaptureResultRow) -> Void)?
     var onSelectedResultEdit: ((CaptureResultRow) -> Void)?
+    var onSelectedResultDelete: ((CaptureResultRow) -> Void)?
     var onRequestTailFromKeyboard: (() -> Bool)?
     var onCollapseResults: (() -> Void)?
     var onInputHistoryPrevious: (() -> Bool)?
@@ -223,6 +224,9 @@ final class CaptureView: NSVisualEffectView {
         }
         textView.onResultEdit = { [weak self] in
             self?.editSelectedResult() ?? false
+        }
+        textView.onResultDelete = { [weak self] in
+            self?.deleteSelectedResult() ?? false
         }
         textView.onInputHistoryPrevious = { [weak self] in
             self?.onInputHistoryPrevious?() ?? false
@@ -683,6 +687,16 @@ final class CaptureView: NSVisualEffectView {
         return true
     }
 
+    private func deleteSelectedResult() -> Bool {
+        guard focusedSurface == .results else { return false }
+        guard showingResults else { return false }
+        guard let selectedResultIndex, resultRows.indices.contains(selectedResultIndex) else { return false }
+        let row = resultRows[selectedResultIndex]
+        guard row.thoughtID != nil else { return false }
+        onSelectedResultDelete?(row)
+        return true
+    }
+
     private func handleEscapeAction() -> Bool {
         if focusedSurface == .results {
             focusedSurface = .input
@@ -923,6 +937,7 @@ final class CaptureTextView: NSTextView {
     var onResultArchiveToggle: (() -> Bool)?
     var onResultCopy: (() -> Bool)?
     var onResultEdit: (() -> Bool)?
+    var onResultDelete: (() -> Bool)?
     var onOpenTail: (() -> Bool)?
     var onEscapeAction: (() -> Bool)?
     var onToggleResultsFocus: (() -> Bool)?
@@ -973,6 +988,11 @@ final class CaptureTextView: NSTextView {
             } else {
                 captureDelegate?.captureTextViewDidSubmit(self)
             }
+        case 2:
+            if event.modifierFlags.contains(.command), onResultDelete?() == true {
+                return
+            }
+            super.keyDown(with: event)
         case 35:
             if event.modifierFlags.contains(.command), onResultPinToggle?() == true {
                 return
