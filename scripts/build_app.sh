@@ -16,6 +16,7 @@ APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
 APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.thoughtstream.app}"
 APP_EXECUTABLE="ThoughtStreamApp"
+CLI_EXECUTABLE="thought"
 
 mkdir -p "$HOME_DIR" "$MODULE_CACHE_DIR" "$DIST_DIR"
 
@@ -28,6 +29,14 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$BUILD_DIR/$BUILD_CONFIGURATION/$APP_EXECUTABLE" "$MACOS_DIR/$APP_EXECUTABLE"
 chmod +x "$MACOS_DIR/$APP_EXECUTABLE"
+
+# Build CLI and embed into app bundle
+env HOME="$HOME_DIR" \
+  CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" \
+  swift build -c "$BUILD_CONFIGURATION" --product "$CLI_EXECUTABLE"
+
+cp "$BUILD_DIR/$BUILD_CONFIGURATION/$CLI_EXECUTABLE" "$MACOS_DIR/$CLI_EXECUTABLE"
+chmod +x "$MACOS_DIR/$CLI_EXECUTABLE"
 
 if [[ -f "$RESOURCES_SOURCE_DIR/AppIcon.icns" ]]; then
   cp "$RESOURCES_SOURCE_DIR/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
@@ -78,6 +87,7 @@ printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 
 xattr -cr "$APP_DIR"
 codesign --force --sign - "$MACOS_DIR/$APP_EXECUTABLE" >/dev/null
+codesign --force --sign - "$MACOS_DIR/$CLI_EXECUTABLE" >/dev/null
 codesign --force --sign - "$APP_DIR" >/dev/null
 
 echo "Built app bundle at: $APP_DIR"

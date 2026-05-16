@@ -26,6 +26,16 @@ It is designed around one constraint:
 
 ## Quick Start
 
+### One-liner install (requires macOS 13+)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/liyipeng/thought-stream/main/scripts/install.sh | sh
+```
+
+This downloads the latest release DMG from GitHub, installs the app to `/Applications`, and creates the `thought` CLI symlink.
+
+### Build from source
+
 Build the app and CLI:
 
 ```bash

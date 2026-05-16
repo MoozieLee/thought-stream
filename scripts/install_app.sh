@@ -24,6 +24,19 @@ fi
 
 rm -rf "$TARGET_APP"
 cp -R "$DIST_APP" "$TARGET_APP"
+
+# Create CLI symlink: try without sudo first, fall back to sudo
+CLI_SOURCE="$TARGET_APP/Contents/MacOS/thought"
+if [[ -x "$CLI_SOURCE" && ! -f /usr/local/bin/thought ]]; then
+  if ln -sf "$CLI_SOURCE" /usr/local/bin/thought 2>/dev/null; then
+    echo "CLI symlink created: /usr/local/bin/thought"
+  else
+    echo "Creating CLI symlink at /usr/local/bin/thought (requires sudo)..."
+    sudo ln -sf "$CLI_SOURCE" /usr/local/bin/thought
+    echo "CLI symlink created: /usr/local/bin/thought"
+  fi
+fi
+
 open "$TARGET_APP"
 
 echo "Installed and opened: $TARGET_APP"

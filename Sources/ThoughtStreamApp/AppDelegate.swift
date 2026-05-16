@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = CapturePanelController(store: store)
         configureStatusItem()
         installHotKey()
+        installCLIIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -28,6 +29,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    /// On first launch, create a symlink from /usr/local/bin/thought
+    /// to the CLI binary embedded inside the app bundle.
+    /// This matches Obsidian's approach of self-bootstrapping its CLI tool.
+    private func installCLIIfNeeded() {
+        let symlinkPath = "/usr/local/bin/thought"
+
+        guard !FileManager.default.fileExists(atPath: symlinkPath) else { return }
+        guard let cliURL = Bundle.main.url(forAuxiliaryExecutable: "thought") else { return }
+
+        do {
+            try FileManager.default.createSymbolicLink(
+                at: URL(fileURLWithPath: symlinkPath),
+                withDestinationURL: cliURL
+            )
+            print("CLI symlink created: \(symlinkPath)")
+        } catch {
+            // Permission denied or /usr/local/bin not writable.
+            // Fall back: install_app.sh handles this with sudo.
+            print("Could not create CLI symlink at \(symlinkPath): \(error.localizedDescription)")
+        }
     }
 
     private func configureStatusItem() {

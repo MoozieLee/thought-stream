@@ -37,7 +37,15 @@ Package.swift
 
 ## 快速开始
 
-### 构建
+### 一行命令安装（需 macOS 13+）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/liyipeng/thought-stream/main/scripts/install.sh | sh
+```
+
+该命令从 GitHub Releases 下载最新 DMG，将应用安装到 `/Applications`，同时创建 `thought` CLI 软链接。
+
+### 从源码构建
 
 ```bash
 # 构建 GUI 应用
