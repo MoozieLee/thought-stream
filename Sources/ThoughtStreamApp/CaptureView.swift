@@ -11,6 +11,29 @@ struct CaptureResultRow: Sendable {
     let archived: Bool
 }
 
+private enum CaptureTheme {
+    static let tagColor = NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? (NSColor.systemCyan.blended(withFraction: 0.15, of: .white) ?? .systemCyan)
+            : (NSColor.controlAccentColor.blended(withFraction: 0.45, of: .labelColor) ?? .controlAccentColor)
+    }
+
+    static let slashCommandColor = NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? (NSColor.systemOrange.blended(withFraction: 0.2, of: .white) ?? .systemOrange)
+            : (NSColor.systemOrange.blended(withFraction: 0.15, of: .labelColor) ?? .systemOrange)
+    }
+
+    static let inlineErrorColor = NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? (NSColor.systemRed.blended(withFraction: 0.2, of: .white) ?? .systemRed)
+            : (NSColor.systemOrange.blended(withFraction: 0.15, of: .labelColor) ?? .systemOrange)
+    }
+}
+
 @MainActor
 final class CaptureView: NSVisualEffectView {
     enum FocusedSurface {
@@ -46,8 +69,8 @@ final class CaptureView: NSVisualEffectView {
     private let resultsSpacing: CGFloat = 8
     private let visibleTailRowCount: Int = 6
     private let baseTextColor = NSColor.labelColor
-    private let tagTextColor = NSColor.controlAccentColor.blended(withFraction: 0.3, of: .labelColor) ?? .labelColor
-    private let slashCommandTextColor = NSColor.systemOrange.blended(withFraction: 0.15, of: .labelColor) ?? .systemOrange
+    private let tagTextColor = CaptureTheme.tagColor
+    private let slashCommandTextColor = CaptureTheme.slashCommandColor
     private let searchIconView: PassthroughImageView = {
         let imageView = PassthroughImageView()
         imageView.image = NSImage(
@@ -105,7 +128,7 @@ final class CaptureView: NSVisualEffectView {
 
     private let inlineErrorLabel: NSTextField = {
         let label = NSTextField(labelWithString: "")
-        label.textColor = NSColor.systemOrange.blended(withFraction: 0.15, of: .labelColor) ?? .systemOrange
+        label.textColor = CaptureTheme.inlineErrorColor
         label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -1250,8 +1273,8 @@ final class TailResultRowView: NSView {
     private static func makeAttributedTitle(_ content: String) -> NSAttributedString {
         let baseFont = NSFont.systemFont(ofSize: 18, weight: .medium)
         let baseColor = NSColor.labelColor
-        let tagColor = NSColor.controlAccentColor.blended(withFraction: 0.3, of: .labelColor) ?? .labelColor
-        let slashCommandColor = NSColor.systemOrange.blended(withFraction: 0.15, of: .labelColor) ?? .systemOrange
+        let tagColor = CaptureTheme.tagColor
+        let slashCommandColor = CaptureTheme.slashCommandColor
         let attributed = NSMutableAttributedString(
             string: content,
             attributes: [
