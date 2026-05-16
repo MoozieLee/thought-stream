@@ -1,10 +1,11 @@
 # Distribution Guide
 
-ThoughtStream now has three separate distribution layers:
+ThoughtStream now has four separate distribution layers:
 
 1. local development install
-2. signed release packaging
-3. optional notarization
+2. unsigned public test releases
+3. signed release packaging
+4. optional notarization
 
 ## Local Development
 
@@ -28,12 +29,39 @@ This produces:
 
 - `dist/ThoughtStream.app`
 - `dist/ThoughtStream.zip`
-- `dist/ThoughtStream.dmg`
+- `dist/ThoughtStream-<version>-<arch>.dmg`
+- `dist/ThoughtStream-<version>-checksums.txt`
 
 The DMG is built as a drag-install volume containing:
 
 - `ThoughtStream.app`
 - an `Applications` shortcut
+
+The packaging script also validates the app bundle locally and, when `gh` is available, attempts to upload the generated artifacts to the matching GitHub release.
+
+## Unsigned Public Test Releases
+
+If you do not have a Developer ID certificate, you can still publish `ThoughtStream.zip`
+or `ThoughtStream.dmg` for technical users who are willing to bypass Gatekeeper manually.
+
+This is suitable for:
+
+- testers
+- internal users
+- early adopters who understand macOS security prompts
+
+This is not suitable for:
+
+- mainstream public distribution
+- users who expect double-click install with no warnings
+- environments with strict managed-device policies
+
+When publishing an unsigned build, clearly state:
+
+- the app is unsigned or ad hoc signed
+- macOS may show a developer verification warning on first launch
+- users may need to right-click the app in Finder and choose `Open`
+- a checksum file is included for manual verification
 
 ## Signed Release
 
@@ -94,12 +122,19 @@ STRICT_GATEKEEPER=1 ./scripts/validate_release.sh
 
 ## First-Run Guidance
 
-Unsigned or ad hoc local builds may be blocked by Gatekeeper on first launch.
+Unsigned or ad hoc local builds may be blocked by Gatekeeper on first launch, even if the ZIP or DMG downloaded correctly.
 
 If that happens:
 
-1. open `ThoughtStream.app` from Finder with `Open`
-2. or go to `System Settings -> Privacy & Security`
-3. then use `Open Anyway`
+1. extract the ZIP or mount the DMG
+2. drag `ThoughtStream.app` to `/Applications`
+3. in Finder, right-click `ThoughtStream.app` and choose `Open`
+4. confirm `Open` again in the system prompt
+
+If Finder still blocks launch:
+
+1. open `System Settings -> Privacy & Security`
+2. find the blocked `ThoughtStream.app` message near the bottom
+3. choose `Open Anyway`
 
 Signed and notarized releases should not need this extra step.

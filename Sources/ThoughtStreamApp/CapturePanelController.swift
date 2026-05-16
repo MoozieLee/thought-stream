@@ -428,6 +428,9 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         case .archive:
             showResults(for: .archive)
             captureView.clearInput(keepResults: true)
+        case .keys:
+            showResults(for: .keys)
+            captureView.clearInput(keepResults: true)
         case .hide:
             captureView.clearInput(keepResults: false)
             collapseResults()
@@ -444,6 +447,8 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
                 return
             case "/archive":
                 executeSlashCommand(.archive)
+            case "/keys":
+                executeSlashCommand(.keys)
             case "/hide":
                 executeSlashCommand(.hide)
             case "/today":
@@ -657,6 +662,21 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
 
     private func showResults(for command: CaptureResultCommand, focusedSurface: CaptureView.FocusedSurface = .input) {
         switch command {
+        case .keys:
+            persistentResultsVisible = true
+            persistentEmptyStateText = "No shortcuts yet"
+            resultSession = nil
+            captureView.showResultRows(
+                Self.keysRows,
+                hasMore: false,
+                headerText: headerText(for: .keys),
+                emptyStateText: persistentEmptyStateText,
+                focusedSurface: focusedSurface
+            )
+            if let panel = window {
+                resizeWindowToMatchContent(panel, animate: true)
+                panel.makeFirstResponder(captureView.textView)
+            }
         case .help:
             persistentResultsVisible = true
             persistentEmptyStateText = "No commands yet"
@@ -802,9 +822,24 @@ private extension CapturePanelController {
         CaptureResultRow(title: "/today", detail: "Today's notes", highlightsTags: true, reuseText: "/today", thoughtID: nil, pinned: false, archived: false),
         CaptureResultRow(title: "/tag thoughtstream", detail: "Browse by tag", highlightsTags: true, reuseText: "/tag ", thoughtID: nil, pinned: false, archived: false),
         CaptureResultRow(title: "/archive", detail: "Archived notes", highlightsTags: true, reuseText: "/archive", thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "/keys", detail: "Keyboard shortcuts", highlightsTags: true, reuseText: "/keys", thoughtID: nil, pinned: false, archived: false),
         CaptureResultRow(title: "/hide", detail: "Collapse results", highlightsTags: true, reuseText: "/hide", thoughtID: nil, pinned: false, archived: false),
         CaptureResultRow(title: "/help", detail: "Command list", highlightsTags: true, reuseText: "/help", thoughtID: nil, pinned: false, archived: false),
         CaptureResultRow(title: "/exit", detail: "Close panel", highlightsTags: true, reuseText: "/exit", thoughtID: nil, pinned: false, archived: false)
+    ]
+
+    static let keysRows: [CaptureResultRow] = [
+        CaptureResultRow(title: "Shift+Command+Space", detail: "Open capture panel", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Enter", detail: "Save input or reuse selected note", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Shift+Enter", detail: "Insert newline", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Tab", detail: "Switch between input and result browsing", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Down Arrow", detail: "Open recent notes from empty input", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Escape", detail: "Return, cancel edit, collapse, or close", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Command+C", detail: "Copy selected note", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Command+E", detail: "Edit selected note", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Command+D", detail: "Delete selected note", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Command+P", detail: "Toggle pin on selected note", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false),
+        CaptureResultRow(title: "Command+Delete", detail: "Toggle archive on selected note", highlightsTags: false, reuseText: nil, thoughtID: nil, pinned: false, archived: false)
     ]
 }
 

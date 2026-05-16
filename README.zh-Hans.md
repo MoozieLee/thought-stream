@@ -71,8 +71,14 @@ env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build 
 
 如果使用本地构建（未签名或 ad hoc 构建），macOS Gatekeeper 可能会阻止首次启动。这种情况下：
 
-1. 从 Finder 中右键 `ThoughtStream.app` 选择「打开」
-2. 或前往「系统设置 → 隐私与安全性」，点击「仍要打开」
+1. 先将 `ThoughtStream.app` 拖到 `/Applications`
+2. 从 Finder 中右键 `ThoughtStream.app` 选择「打开」
+3. 在系统弹窗中再次点击「打开」
+
+如果仍然无法启动：
+
+1. 前往「系统设置 → 隐私与安全性」
+2. 点击「仍要打开」
 
 已签名并公证的发布版本不需要此步骤。
 
@@ -104,6 +110,7 @@ env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build 
 | `/today` | 显示今天的想法 |
 | `/tag <标签>` | 按标签筛选 |
 | `/archive` | 查看已归档的想法 |
+| `/keys` | 显示快捷键帮助 |
 | `/hide` | 隐藏结果面板 |
 | `/help` | 显示帮助 |
 | `/exit` | 关闭面板 |

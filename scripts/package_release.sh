@@ -14,10 +14,50 @@ APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.thoughtstream.app}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 CREATE_DMG="${CREATE_DMG:-1}"
+RELEASE_WORK_DIR="$(mktemp -d /private/tmp/thoughtstream-release.XXXXXX)"
+STAGED_APP_PATH="$RELEASE_WORK_DIR/$APP_NAME"
+REPO="${REPO:-}"
 
 BUILD_SCRIPT="$ROOT_DIR/scripts/build_app.sh"
 DMG_SCRIPT="$ROOT_DIR/scripts/create_dmg.sh"
 VALIDATE_SCRIPT="$ROOT_DIR/scripts/validate_release.sh"
+
+cleanup() {
+  rm -rf "$RELEASE_WORK_DIR"
+}
+
+sanitize_bundle() {
+  local bundle_path="$1"
+  xattr -cr "$bundle_path" 2>/dev/null || true
+  xattr -dr com.apple.FinderInfo "$bundle_path" 2>/dev/null || true
+  xattr -dr com.apple.ResourceFork "$bundle_path" 2>/dev/null || true
+}
+
+resolve_repo_slug() {
+  if [[ -n "$REPO" ]]; then
+    echo "$REPO"
+    return
+  fi
+
+  local remote_url
+  remote_url="$(git remote get-url origin 2>/dev/null || true)"
+  if [[ "$remote_url" =~ ^git@github\.com:(.+)\.git$ ]]; then
+    echo "${match[1]}"
+    return
+  fi
+  if [[ "$remote_url" =~ ^https://github\.com/(.+)\.git$ ]]; then
+    echo "${match[1]}"
+    return
+  fi
+  if [[ "$remote_url" =~ ^https://github\.com/(.+)$ ]]; then
+    echo "${match[1]}"
+    return
+  fi
+}
+
+trap cleanup EXIT
+
+REPO="$(resolve_repo_slug)"
 
 BUILD_CONFIGURATION="$BUILD_CONFIGURATION" \
 APP_VERSION="$APP_VERSION" \
@@ -25,16 +65,19 @@ APP_BUILD="$APP_BUILD" \
 APP_BUNDLE_ID="$APP_BUNDLE_ID" \
 "$BUILD_SCRIPT"
 
+ditto "$APP_PATH" "$STAGED_APP_PATH"
+sanitize_bundle "$STAGED_APP_PATH"
+
 if [[ -n "$SIGNING_IDENTITY" ]]; then
   echo "Signing app bundle with: $SIGNING_IDENTITY"
-  codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" "$APP_PATH/Contents/MacOS/ThoughtStreamApp" >/dev/null
-  codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" "$APP_PATH" >/dev/null
+  codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" "$STAGED_APP_PATH/Contents/MacOS/ThoughtStreamApp" >/dev/null
+  codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" "$STAGED_APP_PATH" >/dev/null
 fi
 
-"$VALIDATE_SCRIPT" "$APP_PATH"
+"$VALIDATE_SCRIPT" "$STAGED_APP_PATH"
 
 rm -f "$ZIP_PATH"
-ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+ditto -c -k --keepParent "$STAGED_APP_PATH" "$ZIP_PATH"
 echo "Created ZIP at: $ZIP_PATH"
 
 if [[ -n "$NOTARY_PROFILE" ]]; then
@@ -45,13 +88,14 @@ if [[ -n "$NOTARY_PROFILE" ]]; then
 
   echo "Submitting ZIP for notarization with profile: $NOTARY_PROFILE"
   xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
-  xcrun stapler staple "$APP_PATH"
+  xcrun stapler staple "$STAGED_APP_PATH"
   rm -f "$ZIP_PATH"
-  ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+  ditto -c -k --keepParent "$STAGED_APP_PATH" "$ZIP_PATH"
   echo "Stapled app and rebuilt ZIP."
 fi
 
 if [[ "$CREATE_DMG" == "1" ]]; then
+  APP_PATH="$STAGED_APP_PATH" \
   SIGNING_IDENTITY="$SIGNING_IDENTITY" \
   APP_VERSION="$RELEASE_VERSION" \
   "$DMG_SCRIPT"
@@ -69,8 +113,8 @@ rm -f "$CHECKSUM_FILE"
   if [[ "$CREATE_DMG" == "1" ]]; then
     shasum -a 256 "$(ls "$DIST_DIR"/*.dmg 2>/dev/null | head -1)"
   fi
-} | while read -r hash path; do
-  echo "$hash  $(basename "$path")"
+} | while read -r hash artifact_path; do
+  echo "$hash  $(basename "$artifact_path")"
 done > "$CHECKSUM_FILE"
 
 echo "Generated checksums at: $CHECKSUM_FILE"
@@ -110,7 +154,11 @@ if command -v gh &>/dev/null; then
   fi
   gh release upload "$RELEASE_TAG" "$CHECKSUM_FILE" --clobber
 
-  echo "Release published: https://github.com/$REPO/releases/tag/$RELEASE_TAG"
+  if [[ -n "$REPO" ]]; then
+    echo "Release published: https://github.com/$REPO/releases/tag/$RELEASE_TAG"
+  else
+    echo "Release published: $RELEASE_TAG"
+  fi
 else
   echo "gh CLI not found. Release artifacts are ready at:"
   echo "  $DIST_DIR/"

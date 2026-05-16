@@ -34,6 +34,8 @@ curl -fsSL https://raw.githubusercontent.com/liyipeng/thought-stream/main/script
 
 This downloads the latest release DMG from GitHub, installs the app to `/Applications`, and creates the `thought` CLI symlink.
 
+If the latest release is unsigned, macOS may block first launch until you right-click the app in Finder and choose `Open`. See [Distribution](docs/distribution.md) for the exact first-run steps.
+
 ### Build from source
 
 Build the app and CLI:
@@ -72,6 +74,7 @@ Some built-in slash commands:
 - `/today`
 - `/tag <tag>`
 - `/archive`
+- `/keys`
 - `/help`
 - `/exit`
 

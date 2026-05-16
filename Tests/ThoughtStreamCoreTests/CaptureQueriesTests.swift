@@ -10,6 +10,7 @@ struct CaptureQueriesTests {
         #expect(CaptureSlashCommandParser.parse("/tail limit:20") == .handled(.tail(limit: 20)))
         #expect(CaptureSlashCommandParser.parse("/search onboarding") == .handled(.search(query: "onboarding")))
         #expect(CaptureSlashCommandParser.parse("/tag thoughtstream") == .handled(.tag(tag: "thoughtstream")))
+        #expect(CaptureSlashCommandParser.parse("/keys") == .handled(.keys))
         #expect(CaptureSlashCommandParser.parse("/hide") == .handled(.hide))
     }
 
@@ -18,11 +19,13 @@ struct CaptureQueriesTests {
         #expect(CaptureSlashCommandParser.inlineErrorMessage(for: "/search") == "Search needs a query")
         #expect(CaptureSlashCommandParser.inlineErrorMessage(for: "/tag code review") == "Tag accepts one token like /tag work")
         #expect(CaptureSlashCommandParser.inlineErrorMessage(for: "/tail limit:nope") == "Tail limit must be a positive number")
+        #expect(CaptureSlashCommandParser.inlineErrorMessage(for: "/keys more") == "Use /keys without extra text")
         #expect(CaptureSlashCommandParser.inlineErrorMessage(for: "/wat") == "Unknown command")
     }
 
     @Test
     func slashAutocompleteIncludesHide() {
+        #expect(CaptureSlashCommandParser.autocompleteSuggestion(for: "/ke") == "/keys")
         #expect(CaptureSlashCommandParser.autocompleteSuggestion(for: "/hi") == "/hide")
         #expect(CaptureSlashCommandParser.autocompleteSuggestion(for: "/hide") == nil)
     }
@@ -124,5 +127,6 @@ struct CaptureQueriesTests {
             CaptureResultQueryBuilder.contextualHeaderText(for: .search(query: "onboarding"), loadedCount: 1, hasMore: false)
                 == "Search: onboarding · 1 note"
         )
+        #expect(CaptureResultQueryBuilder.headerText(for: .keys) == "Keyboard shortcuts")
     }
 }

@@ -18,6 +18,13 @@ APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.thoughtstream.app}"
 APP_EXECUTABLE="ThoughtStreamApp"
 CLI_EXECUTABLE="thought"
 
+sanitize_bundle() {
+  local bundle_path="$1"
+  xattr -cr "$bundle_path" 2>/dev/null || true
+  xattr -dr com.apple.FinderInfo "$bundle_path" 2>/dev/null || true
+  xattr -dr com.apple.ResourceFork "$bundle_path" 2>/dev/null || true
+}
+
 mkdir -p "$HOME_DIR" "$MODULE_CACHE_DIR" "$DIST_DIR"
 
 env HOME="$HOME_DIR" \
@@ -85,9 +92,10 @@ EOF
 
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 
-xattr -cr "$APP_DIR"
+sanitize_bundle "$APP_DIR"
 codesign --force --sign - "$MACOS_DIR/$APP_EXECUTABLE" >/dev/null
 codesign --force --sign - "$MACOS_DIR/$CLI_EXECUTABLE" >/dev/null
 codesign --force --sign - "$APP_DIR" >/dev/null
+sanitize_bundle "$APP_DIR"
 
 echo "Built app bundle at: $APP_DIR"

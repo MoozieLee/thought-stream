@@ -109,6 +109,88 @@ struct ThoughtStoreQueryTests {
         let thoughts = try fixture.store.fetchThoughts(query: query)
         #expect(thoughts.map(\.content) == ["today"])
     }
+
+    @Test
+    func todayWindowExcludesNextMidnightBoundary() throws {
+        let fixture = try StoreFixture()
+        defer { fixture.cleanup() }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+        let now = fixture.makeDate(year: 2026, month: 5, day: 16, hour: 14, minute: 0, timeZone: calendar.timeZone)
+        let start = calendar.startOfDay(for: now)
+        let nextMidnight = calendar.date(byAdding: .day, value: 1, to: start)!
+        let sameDay = nextMidnight.addingTimeInterval(-60)
+
+        _ = try fixture.store.addThought(content: "today late", createdAt: sameDay)
+        _ = try fixture.store.addThought(content: "tomorrow midnight", createdAt: nextMidnight)
+
+        let query = CaptureResultQueryBuilder.thoughtQuery(
+            for: .today,
+            offset: 0,
+            pageSize: 50,
+            now: now,
+            calendar: calendar
+        )
+        let thoughts = try fixture.store.fetchThoughts(query: query)
+        #expect(thoughts.map(\.content) == ["today late"])
+    }
+
+    @Test
+    func upperBoundDateFilterIsExclusive() throws {
+        let fixture = try StoreFixture()
+        defer { fixture.cleanup() }
+
+        let to = fixture.makeDate(year: 2026, month: 5, day: 17, hour: 0, minute: 0)
+        _ = try fixture.store.addThought(content: "included", createdAt: to.addingTimeInterval(-1))
+        _ = try fixture.store.addThought(content: "excluded", createdAt: to)
+
+        let thoughts = try fixture.store.fetchThoughts(
+            query: ThoughtQuery(
+                to: to,
+                source: "human",
+                channel: "gui",
+                order: .ascending
+            )
+        )
+
+        #expect(thoughts.map(\.content) == ["included"])
+    }
+
+    @Test
+    func daySummariesRespectArchivedAndTagFilters() throws {
+        let fixture = try StoreFixture()
+        defer { fixture.cleanup() }
+
+        let dayOne = fixture.makeDate(year: 2026, month: 5, day: 15, hour: 9, minute: 0)
+        let dayTwo = fixture.makeDate(year: 2026, month: 5, day: 16, hour: 9, minute: 0)
+
+        _ = try fixture.store.addThought(content: "work active", createdAt: dayOne, tags: ["work"])
+        _ = try fixture.store.addThought(content: "work archived", createdAt: dayOne.addingTimeInterval(60), tags: ["work"], archived: true)
+        _ = try fixture.store.addThought(content: "personal archived", createdAt: dayTwo, tags: ["personal"], archived: true)
+
+        let archivedWork = try fixture.store.fetchDaySummaries(
+            query: ThoughtQuery(tag: "work", archived: true, order: .ascending)
+        )
+        let activeWork = try fixture.store.fetchDaySummaries(
+            query: ThoughtQuery(tag: "work", archived: false, order: .ascending)
+        )
+
+        #expect(archivedWork.map(\.day) == ["2026-05-15"])
+        #expect(archivedWork.map(\.count) == [1])
+        #expect(activeWork.map(\.day) == ["2026-05-15"])
+        #expect(activeWork.map(\.count) == [1])
+    }
+
+    @Test
+    func addThoughtRejectsEmptyContent() throws {
+        let fixture = try StoreFixture()
+        defer { fixture.cleanup() }
+
+        #expect(throws: ThoughtStoreError.self) {
+            try fixture.store.addThought(content: "   ")
+        }
+    }
 }
 
 private struct StoreFixture {

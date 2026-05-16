@@ -6,6 +6,7 @@ public enum CaptureSlashCommand: Equatable, Sendable {
     case today
     case tag(tag: String)
     case archive
+    case keys
     case hide
     case help
     case exit
@@ -24,11 +25,12 @@ public enum CaptureResultCommand: Equatable, Sendable {
     case today
     case tag(tag: String)
     case archive
+    case keys
     case help
 }
 
 public enum CaptureSlashCommandParser {
-    public static let availableCommands = ["/tail", "/search", "/today", "/tag", "/archive", "/hide", "/help", "/exit"]
+    public static let availableCommands = ["/tail", "/search", "/today", "/tag", "/archive", "/keys", "/hide", "/help", "/exit"]
 
     public static func autocompleteSuggestion(for text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -54,6 +56,8 @@ public enum CaptureSlashCommandParser {
             return parts.count == 1 ? .handled(.exit) : .invalid
         case "/help":
             return parts.count == 1 ? .handled(.help) : .invalid
+        case "/keys":
+            return parts.count == 1 ? .handled(.keys) : .invalid
         case "/today":
             return parts.count == 1 ? .handled(.today) : .invalid
         case "/search":
@@ -114,6 +118,8 @@ public enum CaptureSlashCommandParser {
             return parts.count > 1 ? nil : "Search needs a query"
         case "/today":
             return parts.count == 1 ? nil : "Use /today without extra text"
+        case "/keys":
+            return parts.count == 1 ? nil : "Use /keys without extra text"
         case "/tag":
             guard parts.count > 1 else { return "Tag needs a single token like /tag work" }
             guard parts.count == 2 else { return "Tag accepts one token like /tag work" }
@@ -207,7 +213,7 @@ public enum CaptureResultQueryBuilder {
                 pinnedFirst: true,
                 order: .descending
             )
-        case .help:
+        case .keys, .help:
             return ThoughtQuery()
         }
     }
@@ -227,7 +233,7 @@ public enum CaptureResultQueryBuilder {
             return fetchedCount == fetchLimit
         case .search, .today, .tag, .archive:
             return fetchedCount == pageSize
-        case .help:
+        case .keys, .help:
             return false
         }
     }
@@ -244,6 +250,8 @@ public enum CaptureResultQueryBuilder {
             return "No notes tagged #\(tag)"
         case .archive:
             return "No archived notes"
+        case .keys:
+            return "No shortcuts yet"
         case .help:
             return "No commands yet"
         }
@@ -264,6 +272,8 @@ public enum CaptureResultQueryBuilder {
             return "Tag: #\(tag)"
         case .archive:
             return "Archived notes"
+        case .keys:
+            return "Keyboard shortcuts"
         case .help:
             return "Commands"
         }
@@ -275,7 +285,7 @@ public enum CaptureResultQueryBuilder {
         hasMore: Bool
     ) -> String {
         let base = headerText(for: command)
-        guard command != .help else { return base }
+        guard command != .help, command != .keys else { return base }
         guard loadedCount > 0 else { return base }
 
         let countText: String

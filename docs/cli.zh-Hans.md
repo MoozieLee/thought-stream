@@ -1,21 +1,21 @@
-# CLI Guide
+# CLI 指南
 
-The `thought` CLI is the query-oriented interface for ThoughtStream.
+`thought` CLI 是 ThoughtStream 的查询驱动命令行接口。
 
-It is intended for:
+适用场景：
 
-- quick local inspection
-- scripts
-- automation
-- agent workflows
+- 快速本地查阅
+- 脚本
+- 自动化
+- agent 工作流
 
-## Build
+## 构建
 
 ```bash
 env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build --product thought
 ```
 
-## Common Commands
+## 常用命令
 
 ```bash
 ./.build/debug/thought list --json
@@ -31,9 +31,9 @@ env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build 
 ./.build/debug/thought delete <id>
 ```
 
-## Command Groups
+## 命令分组
 
-Query:
+查询类：
 
 - `list`
 - `tail`
@@ -44,15 +44,15 @@ Query:
 - `days`
 - `get`
 
-Write and update:
+写入和更新类：
 
 - `add`
 - `update`
 - `delete`
 
-## Write Operations
+## 写入操作
 
-Create a note:
+创建笔记：
 
 ```bash
 ./.build/debug/thought add "idea to revisit"
@@ -60,7 +60,7 @@ Create a note:
 printf 'captured from stdin\n' | ./.build/debug/thought add --channel cli
 ```
 
-Update a note:
+更新笔记：
 
 ```bash
 ./.build/debug/thought update <id> --content "updated text"
@@ -68,15 +68,15 @@ Update a note:
 ./.build/debug/thought update <id> --clear-tags --unarchived --unpinned
 ```
 
-Delete a note:
+删除笔记：
 
 ```bash
 ./.build/debug/thought delete <id>
 ```
 
-## Archive Filters
+## 归档筛选
 
-Most query commands support archive filtering:
+大多数查询命令支持归档状态筛选：
 
 ```bash
 ./.build/debug/thought list --archived --json
@@ -86,35 +86,35 @@ Most query commands support archive filtering:
 ./.build/debug/thought days --archived --json
 ```
 
-## Agent-Oriented Examples
+## Agent 工作流示例
 
-Export recent human GUI captures:
+导出最近通过 GUI 捕获的内容：
 
 ```bash
 ./.build/debug/thought export --from 7d --source human --channel gui --json
 ```
 
-Query older slices:
+查询更早的数据切片：
 
 ```bash
 ./.build/debug/thought search "retrieval ranking" --offset 100 --limit 100 --json
 ```
 
-Inspect today's captures:
+查看今日捕获：
 
 ```bash
 ./.build/debug/thought today --source human --channel gui --json
 ```
 
-Inspect day summaries:
+查看按日汇总：
 
 ```bash
 ./.build/debug/thought days --from 30d --json
 ```
 
-## Notes
+## 说明
 
-- `thought add` exists for testing and automation
-- the primary capture path is still the GUI
-- the CLI is the better place for heavier review and downstream workflows
-- `thought update` supports `--clear-tags`, `--archived|--unarchived`, and `--pinned|--unpinned`
+- `thought add` 主要用于测试和自动化场景
+- 主要捕获路径仍然是 GUI 覆盖层
+- CLI 更适合进行较重的回顾和下游工作流处理
+- `thought update` 支持 `--clear-tags`、`--archived|--unarchived` 和 `--pinned|--unpinned`

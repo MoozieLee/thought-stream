@@ -43,9 +43,14 @@ Unsigned or ad hoc local builds may require one manual approval on first launch.
 
 If that happens:
 
-1. open `ThoughtStream.app` from Finder with `Open`
-2. or go to `System Settings -> Privacy & Security`
-3. then use `Open Anyway`
+1. drag `ThoughtStream.app` to `/Applications`
+2. in Finder, right-click `ThoughtStream.app` and choose `Open`
+3. confirm `Open` again in the system prompt
+
+If that still fails:
+
+1. open `System Settings -> Privacy & Security`
+2. then use `Open Anyway`
 
 Signed and notarized releases should not need this extra step.
 
@@ -65,6 +70,13 @@ Basic keys:
 - `↓` opens recent notes
 - `Tab` switches between input and result browsing
 
+## In-App Help
+
+The overlay includes two built-in help entry points:
+
+- `/help` shows the available slash commands
+- `/keys` shows the available keyboard shortcuts
+
 ## Result Browsing
 
 When the result panel is open:
@@ -72,6 +84,7 @@ When the result panel is open:
 - `↑/↓` move through results
 - `Enter` reuses the selected note as a new draft
 - `Cmd+C` copies the selected note content
+- `Cmd+D` deletes the selected note
 - `Cmd+P` toggles pin
 - `Cmd+Delete` toggles archive
 - `Cmd+E` edits the selected note

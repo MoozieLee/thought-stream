@@ -851,7 +851,7 @@ final class CaptureView: NSVisualEffectView {
         case .input:
             return "Tab to browse"
         case .results:
-            if headerText == "Commands" {
+            if headerText == "Commands" || headerText == "Keyboard shortcuts" {
                 return "Enter to insert · Esc to return"
             }
             return "Enter to reuse · ⌘E to edit · Esc to return"

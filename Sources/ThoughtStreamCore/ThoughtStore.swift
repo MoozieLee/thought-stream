@@ -86,6 +86,7 @@ public enum ThoughtStoreError: Error, LocalizedError {
     case bind(String)
     case notFound(String)
     case invalidTag(String)
+    case invalidThought(String)
     case invalidUpdate(String)
 
     public var errorDescription: String? {
@@ -96,6 +97,7 @@ public enum ThoughtStoreError: Error, LocalizedError {
         case .bind(let message): return "SQLite bind failed: \(message)"
         case .notFound(let message): return message
         case .invalidTag(let message): return message
+        case .invalidThought(let message): return message
         case .invalidUpdate(let message): return message
         }
     }
@@ -145,16 +147,7 @@ public final class ThoughtStore: @unchecked Sendable {
         let mergedTags = ThoughtTagParser.merge(explicitTags, ThoughtTagParser.extract(from: trimmed))
 
         guard !trimmed.isEmpty else {
-            return Thought(
-                content: "",
-                createdAt: createdAt,
-                updatedAt: updatedAt,
-                source: source,
-                channel: channel,
-                tags: mergedTags,
-                archived: archived,
-                pinned: pinned
-            )
+            throw ThoughtStoreError.invalidThought("Thought content cannot be empty.")
         }
 
         let thought = Thought(
@@ -227,7 +220,7 @@ public final class ThoughtStore: @unchecked Sendable {
             bindings.append(isoFormatter.string(from: from))
         }
         if let to = query.to {
-            predicates.append("thoughts.created_at <= ?")
+            predicates.append("thoughts.created_at < ?")
             bindings.append(isoFormatter.string(from: to))
         }
         if let source = query.source?.trimmingCharacters(in: .whitespacesAndNewlines), !source.isEmpty {
@@ -534,8 +527,16 @@ public final class ThoughtStore: @unchecked Sendable {
             bindings.append(isoFormatter.string(from: from))
         }
         if let to = query.to {
-            predicates.append("thoughts.created_at <= ?")
+            predicates.append("thoughts.created_at < ?")
             bindings.append(isoFormatter.string(from: to))
+        }
+        if let tag = query.tag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty {
+            predicates.append("EXISTS (SELECT 1 FROM json_each(thoughts.tags_json) WHERE json_each.value = ?)")
+            bindings.append(tag)
+        }
+        if let archived = query.archived {
+            predicates.append("thoughts.archived = ?")
+            bindings.append(archived ? "1" : "0")
         }
         if let source = query.source?.trimmingCharacters(in: .whitespacesAndNewlines), !source.isEmpty {
             predicates.append("thoughts.source = ?")

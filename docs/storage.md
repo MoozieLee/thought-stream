@@ -35,3 +35,5 @@ To clear the current database contents without deleting the whole file:
 ```bash
 ./scripts/clear_db.sh
 ```
+
+This removes rows from both `thoughts` and `thoughts_fts` and resets the SQLite autoincrement counter for `thoughts`.
