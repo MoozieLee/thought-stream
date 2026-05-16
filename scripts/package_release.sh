@@ -79,6 +79,13 @@ echo "Generated checksums at: $CHECKSUM_FILE"
 # Upload to GitHub Releases
 # ---------------------------------------------------------------------------
 RELEASE_TAG="v${RELEASE_VERSION}"
+
+# Ensure tag exists on remote before creating release
+git tag -f "$RELEASE_TAG" >/dev/null 2>&1
+git push origin "$RELEASE_TAG" >/dev/null 2>&1 || {
+  echo "Warning: could not push tag $RELEASE_TAG, continuing..." >&2
+}
+
 if command -v gh &>/dev/null; then
   echo "Creating GitHub release: $RELEASE_TAG"
 
@@ -86,14 +93,20 @@ if command -v gh &>/dev/null; then
     echo "Release $RELEASE_TAG already exists, uploading artifacts..."
   else
     gh release create "$RELEASE_TAG" \
-      --title "ThoughtStream $APP_VERSION" \
+      --title "ThoughtStream $RELEASE_VERSION" \
       --notes "See [CHANGELOG](https://github.com/liyipeng/thought-stream/blob/main/CHANGELOG.md) for details." \
+      --target main \
       --draft
   fi
 
   gh release upload "$RELEASE_TAG" "$ZIP_PATH" --clobber
   if [[ "$CREATE_DMG" == "1" ]]; then
-    gh release upload "$RELEASE_TAG" "$(ls "$DIST_DIR"/*.dmg 2>/dev/null | head -1)" --clobber
+    DMG_PATH="$DIST_DIR/ThoughtStream-${RELEASE_VERSION}-$(uname -m).dmg"
+    if [[ -f "$DMG_PATH" ]]; then
+      gh release upload "$RELEASE_TAG" "$DMG_PATH" --clobber
+    else
+      echo "DMG not found at expected path: $DMG_PATH" >&2
+    fi
   fi
   gh release upload "$RELEASE_TAG" "$CHECKSUM_FILE" --clobber
 

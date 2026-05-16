@@ -44,3 +44,11 @@ else
   echo "Missing main executable at: $EXECUTABLE_PATH" >&2
   exit 1
 fi
+
+CLI_PATH="$APP_PATH/Contents/MacOS/thought"
+if [[ -x "$CLI_PATH" ]]; then
+  echo "CLI binary present: $CLI_PATH"
+else
+  echo "Missing CLI binary at: $CLI_PATH" >&2
+  exit 1
+fi

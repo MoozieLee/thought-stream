@@ -7,9 +7,6 @@ CLI_SYMLINK="/usr/local/bin/thought"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-# Preferred format: DMG (more polished). Falls back to ZIP.
-PREFERRED_FORMAT="dmg"
-
 # ---------------------------------------------------------------------------
 # Colors
 # ---------------------------------------------------------------------------
@@ -71,7 +68,7 @@ ARTIFACT_URL="https://github.com/$REPO/releases/download/$LATEST/$ARTIFACT_NAME"
 ARTIFACT_PATH="$TMP_DIR/$ARTIFACT_NAME"
 
 info "Downloading $ARTIFACT_NAME ..."
-HTTP_CODE=$(curl -sfL -w '%{http_code}' "$ARTIFACT_URL" -o "$ARTIFACT_PATH" 2>/dev/null || echo "000")
+HTTP_CODE=$(curl -sL -w '%{http_code}' "$ARTIFACT_URL" -o "$ARTIFACT_PATH" --show-error 2>&1 || echo "000")
 
 if [ "$HTTP_CODE" = "200" ]; then
   FORMAT="dmg"
@@ -83,7 +80,7 @@ else
   ARTIFACT_PATH="$TMP_DIR/$ARTIFACT_NAME"
 
   info "Falling back to $ARTIFACT_NAME ..."
-  curl -fL# "$ARTIFACT_URL" -o "$ARTIFACT_PATH" 2>&1 | tail -1
+  curl -fsSL --show-error "$ARTIFACT_URL" -o "$ARTIFACT_PATH" 2>&1
   FORMAT="zip"
 fi
 
@@ -116,6 +113,12 @@ fi
 # Install .app
 # ---------------------------------------------------------------------------
 info "Installing ThoughtStream.app ..."
+
+# Kill existing app before replacing
+if pgrep -x "ThoughtStreamApp" >/dev/null 2>&1; then
+  pkill -x "ThoughtStreamApp" 2>/dev/null || true
+  sleep 0.5
+fi
 
 # Remove old version if exists
 if [ -d "$INSTALL_DIR/ThoughtStream.app" ]; then
