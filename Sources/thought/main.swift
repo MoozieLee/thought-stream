@@ -44,6 +44,8 @@ struct CLI {
             try delete(args: Array(arguments.dropFirst()))
         case "today":
             try today(args: Array(arguments.dropFirst()))
+        case "config":
+            try config(args: Array(arguments.dropFirst()))
         case "version", "--version", "-V":
             print(Self.version)
         case "help", "--help", "-h":
@@ -144,6 +146,54 @@ struct CLI {
         }
         let summaries = try store.fetchDaySummaries(query: options.makeQuery(defaultOrder: .descending))
         try ThoughtOutput.printDaySummaries(summaries, json: options.json)
+    }
+
+    private func config(args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.usage("thought config <show|set-root> [...]")
+        }
+
+        switch subcommand {
+        case "show":
+            try configShow()
+        case "set-root":
+            try configSetRoot(args: Array(args.dropFirst()))
+        default:
+            throw CLIError.usage("Unknown config subcommand: \(subcommand)\n\nUsage: thought config <show|set-root>")
+        }
+    }
+
+    private func configShow() throws {
+        let config = ThoughtStreamConfig.load()
+        let resolved = try ThoughtStore.resolveBaseDirectory()
+        print("Storage root: \(resolved.path)")
+        if config.storageRoot != nil {
+            print("Source: config (\(ThoughtStreamConfig.configURL.path))")
+        } else {
+            print("Source: default (~/Library/Application Support/ThoughtStream)")
+        }
+    }
+
+    private func configSetRoot(args: [String]) throws {
+        guard let path = args.first else {
+            throw CLIError.usage("thought config set-root <path> [--overwrite|--merge]")
+        }
+
+        let policy: ThoughtStore.MigrationConflictPolicy
+        if args.contains("--overwrite") {
+            policy = .overwrite
+        } else if args.contains("--merge") {
+            policy = .merge
+        } else {
+            policy = .error
+        }
+
+        let newRoot = URL(fileURLWithPath: path, isDirectory: true)
+        try ThoughtStore.migrateStoreIfNeeded(from: store.databaseURL, to: newRoot, onConflict: policy)
+        var config = ThoughtStreamConfig.load()
+        config.storageRoot = path
+        try config.save()
+        print("Storage root set to: \(path)")
     }
 
     private func add(args: [String]) throws {
@@ -300,6 +350,8 @@ struct CLI {
       thought update <id> [--content TEXT] [--tag TAG ...] [--clear-tags] [--archived|--unarchived] [--pinned|--unpinned]
       thought get <id> [--json]
       thought delete <id>
+      thought config show
+      thought config set-root <path> [--overwrite|--merge]
 
     date formats:
       2026-05-12

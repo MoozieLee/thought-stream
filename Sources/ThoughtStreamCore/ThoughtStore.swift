@@ -111,7 +111,7 @@ public final class ThoughtStore: @unchecked Sendable {
     private let isoFormatter = ISO8601DateFormatter()
 
     public init(baseDirectory: URL? = nil) throws {
-        let root = try Self.prepareBaseDirectory(baseDirectory)
+        let root = try Self.resolveBaseDirectory(explicitBaseDirectory: baseDirectory)
         self.databaseURL = root.appendingPathComponent("thoughts.sqlite3", isDirectory: false)
 
         var database: OpaquePointer?
@@ -662,17 +662,13 @@ public final class ThoughtStore: @unchecked Sendable {
         return normalized
     }
 
-    private static func prepareBaseDirectory(_ input: URL?) throws -> URL {
-        if let input {
-            try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
-            return input
+    public static func resolveBaseDirectory(explicitBaseDirectory: URL? = nil) throws -> URL {
+        if let explicitBaseDirectory {
+            return try prepareDirectory(explicitBaseDirectory)
         }
 
-        let environment = ProcessInfo.processInfo.environment
-        if let override = environment["THOUGHT_STREAM_HOME"], !override.isEmpty {
-            let directory = URL(fileURLWithPath: override, isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            return directory
+        if let root = ThoughtStreamConfig.load().resolvedStorageRoot {
+            return try prepareDirectory(root)
         }
 
         do {
@@ -682,15 +678,127 @@ public final class ThoughtStore: @unchecked Sendable {
                 appropriateFor: nil,
                 create: true
             )
-            let directory = appSupport.appendingPathComponent("ThoughtStream", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            return directory
+            return try prepareDirectory(appSupport.appendingPathComponent("ThoughtStream", isDirectory: true))
         } catch {
             let fallback = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
                 .appendingPathComponent(".thought-stream", isDirectory: true)
-            try FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
-            return fallback
+            return try prepareDirectory(fallback)
         }
+    }
+
+    private static func prepareDirectory(_ directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    public enum MigrationConflictPolicy: Sendable {
+        /// Throw an error if the destination already contains a database.
+        case error
+        /// Delete the destination and replace it with the source.
+        case overwrite
+        /// Merge source rows into the destination (duplicate IDs are skipped).
+        case merge
+    }
+
+    /// Return all SQLite auxiliary files (WAL, SHM) associated with a database URL, if they exist.
+    private static func auxiliaryFiles(for databaseURL: URL) -> [URL] {
+        ["-wal", "-shm"].compactMap { suffix in
+            let url = URL(fileURLWithPath: databaseURL.path + suffix, isDirectory: false)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+    }
+
+    /// Close the source database cleanly so WAL data is flushed before migration.
+    private static func checkpointAndClose(databaseURL: URL) {
+        var db: OpaquePointer?
+        guard sqlite3_open(databaseURL.path, &db) == SQLITE_OK, let db else { return }
+        sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)", nil, nil, nil)
+        sqlite3_close(db)
+    }
+
+    /// Move or merge the existing database into the new storage root, then clean up the old location.
+    public static func migrateStoreIfNeeded(
+        from oldDatabaseURL: URL,
+        to newRoot: URL,
+        onConflict: MigrationConflictPolicy = .error
+    ) throws {
+        let newDatabaseURL = newRoot.appendingPathComponent("thoughts.sqlite3", isDirectory: false)
+        if oldDatabaseURL.standardizedFileURL == newDatabaseURL.standardizedFileURL { return }
+        guard FileManager.default.fileExists(atPath: oldDatabaseURL.path) else { return }
+
+        // Flush WAL before migration so auxiliary files are empty.
+        checkpointAndClose(databaseURL: oldDatabaseURL)
+
+        let destinationExists = FileManager.default.fileExists(atPath: newDatabaseURL.path)
+
+        if destinationExists {
+            switch onConflict {
+            case .error:
+                throw ThoughtStoreError.openDatabase(
+                    "A database already exists at \(newDatabaseURL.path). Use --overwrite or --merge to handle it."
+                )
+            case .overwrite:
+                try FileManager.default.removeItem(at: newDatabaseURL)
+                for aux in auxiliaryFiles(for: newDatabaseURL) {
+                    try? FileManager.default.removeItem(at: aux)
+                }
+            case .merge:
+                try mergeIntoDestination(source: oldDatabaseURL, destination: newDatabaseURL)
+                try FileManager.default.removeItem(at: oldDatabaseURL)
+                for suffix in ["-wal", "-shm"] {
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: oldDatabaseURL.path + suffix, isDirectory: false))
+                }
+                cleanUpOldDirectory(for: oldDatabaseURL)
+                return
+            }
+        }
+
+        try FileManager.default.createDirectory(at: newRoot, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: oldDatabaseURL, to: newDatabaseURL)
+        for suffix in ["-wal", "-shm"] {
+            let src = URL(fileURLWithPath: oldDatabaseURL.path + suffix, isDirectory: false)
+            guard FileManager.default.fileExists(atPath: src.path) else { continue }
+            let dst = URL(fileURLWithPath: newDatabaseURL.path + suffix, isDirectory: false)
+            try? FileManager.default.copyItem(at: src, to: dst)
+        }
+        try FileManager.default.removeItem(at: oldDatabaseURL)
+        for suffix in ["-wal", "-shm"] {
+            let aux = URL(fileURLWithPath: oldDatabaseURL.path + suffix, isDirectory: false)
+            try? FileManager.default.removeItem(at: aux)
+        }
+        cleanUpOldDirectory(for: oldDatabaseURL)
+    }
+
+    private static func cleanUpOldDirectory(for oldDatabaseURL: URL) {
+        let oldDir = oldDatabaseURL.deletingLastPathComponent()
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: oldDir.path), contents.isEmpty {
+            try? FileManager.default.removeItem(at: oldDir)
+        }
+    }
+
+    /// Merge rows from the source database into the destination using ATTACH.
+    private static func mergeIntoDestination(source sourceURL: URL, destination destURL: URL) throws {
+        var destDB: OpaquePointer?
+        guard sqlite3_open(destURL.path, &destDB) == SQLITE_OK, let destDB else {
+            throw ThoughtStoreError.openDatabase(sqliteMessage(from: destDB))
+        }
+        defer { sqlite3_close(destDB) }
+
+        let attach = "ATTACH DATABASE '\(sourceURL.path)' AS source"
+        guard sqlite3_exec(destDB, attach, nil, nil, nil) == SQLITE_OK else {
+            throw ThoughtStoreError.openDatabase(sqliteMessage(from: destDB))
+        }
+
+        let mergeThoughts = "INSERT OR IGNORE INTO thoughts SELECT * FROM source.thoughts"
+        guard sqlite3_exec(destDB, mergeThoughts, nil, nil, nil) == SQLITE_OK else {
+            sqlite3_exec(destDB, "DETACH source", nil, nil, nil)
+            throw ThoughtStoreError.openDatabase(sqliteMessage(from: destDB))
+        }
+
+        let mergeFTS = "INSERT OR IGNORE INTO thoughts_fts SELECT * FROM source.thoughts_fts"
+        sqlite3_exec(destDB, mergeFTS, nil, nil, nil)
+
+        sqlite3_exec(destDB, "DETACH source", nil, nil, nil)
     }
 
     private func prepare(_ sql: String) throws -> OpaquePointer? {

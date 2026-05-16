@@ -2,6 +2,25 @@
 
 All notable changes to ThoughtStream will be documented in this file.
 
+## [0.2.0] — 2026-05-16
+
+### Changed
+- **Storage config unified**: single `~/.config/thoughtstream/config.json` replaces UserDefaults + `THOUGHT_STREAM_HOME`. GUI and CLI always agree on the storage location.
+- GUI `Change Storage Location`, `Reset Storage Location`, and `Reveal Data Folder` in menu bar
+
+### Added
+- `thought config show` — display current storage root and its source
+- `thought config set-root <path> [--overwrite|--merge]` — set storage root with automatic data migration
+- Automatic data migration when changing storage: handles `thoughts.sqlite3`, `-wal`, and `-shm` files with cleanup
+- Merge strategy via SQLite `ATTACH` + `INSERT OR IGNORE` with UUID deduplication
+- Overwrite strategy for replacing existing destination databases
+- Conflict resolution dialog in GUI (Overwrite / Merge / Cancel)
+- `PRAGMA wal_checkpoint(TRUNCATE)` before migration to ensure WAL consistency
+
+### Removed
+- `THOUGHT_STREAM_HOME` environment variable override
+- `UserDefaults` storage root persistence key
+
 ## [0.1.0-b1] — 2026-05-16
 
 ### Added

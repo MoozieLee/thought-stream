@@ -29,6 +29,8 @@ env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build 
 ./.build/debug/thought get <id>
 ./.build/debug/thought update <id> --content "updated text" --tag work
 ./.build/debug/thought delete <id>
+./.build/debug/thought config show
+./.build/debug/thought config set-root /path/to/folder
 ```
 
 ## 命令分组
@@ -49,6 +51,28 @@ env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build 
 - `add`
 - `update`
 - `delete`
+
+配置类：
+
+- `config`
+
+## 配置存储位置
+
+CLI 和 GUI 应用读写同一个配置文件，始终指向相同的存储位置。
+
+```bash
+# 查看当前存储根目录
+thought config show
+
+# 设置存储根目录（自动迁移数据）
+thought config set-root /path/to/folder
+
+# 如果目标目录已有数据库，选择覆盖或合并
+thought config set-root /path/to/folder --overwrite
+thought config set-root /path/to/folder --merge
+```
+
+变更存储根目录时，现有数据库（含 `-wal` 和 `-shm` 文件）会自动迁移到新位置，旧文件会被清理。
 
 ## 写入操作
 

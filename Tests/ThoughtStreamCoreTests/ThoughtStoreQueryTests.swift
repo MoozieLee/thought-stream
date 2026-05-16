@@ -4,6 +4,50 @@ import Testing
 
 struct ThoughtStoreQueryTests {
     @Test
+    func configStorageRootOverridesDefaultLocation() throws {
+        let configured = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: configured) }
+
+        var config = ThoughtStreamConfig()
+        config.storageRoot = configured.path
+        try config.save()
+        defer { try? FileManager.default.removeItem(at: ThoughtStreamConfig.configURL) }
+
+        let resolved = try ThoughtStore.resolveBaseDirectory()
+        #expect(resolved.standardizedFileURL == configured.standardizedFileURL)
+    }
+
+    @Test
+    func explicitBaseDirectoryTakesPrecedenceOverConfigRoot() throws {
+        let explicit = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let configured = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: explicit)
+            try? FileManager.default.removeItem(at: configured)
+        }
+
+        var config = ThoughtStreamConfig()
+        config.storageRoot = configured.path
+        try config.save()
+        defer { try? FileManager.default.removeItem(at: ThoughtStreamConfig.configURL) }
+
+        let resolved = try ThoughtStore.resolveBaseDirectory(explicitBaseDirectory: explicit)
+        #expect(resolved.standardizedFileURL == explicit.standardizedFileURL)
+    }
+
+    @Test
+    func resolveBaseDirectoryDefaultsToApplicationSupport() throws {
+        let resolved = try ThoughtStore.resolveBaseDirectory()
+        let appSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("ThoughtStream", isDirectory: true)
+        #expect(resolved.standardizedFileURL == appSupport.standardizedFileURL)
+    }
+
+    @Test
     func recentQueriesExcludeArchivedAndSortPinnedFirst() throws {
         let fixture = try StoreFixture()
         defer { fixture.cleanup() }

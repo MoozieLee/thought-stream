@@ -29,6 +29,8 @@ env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build 
 ./.build/debug/thought get <id>
 ./.build/debug/thought update <id> --content "updated text" --tag work
 ./.build/debug/thought delete <id>
+./.build/debug/thought config show
+./.build/debug/thought config set-root /path/to/folder
 ```
 
 ## Command Groups
@@ -49,6 +51,28 @@ Write and update:
 - `add`
 - `update`
 - `delete`
+
+Config:
+
+- `config`
+
+## Config
+
+The CLI reads and writes the same config file as the GUI app. Both always agree on the storage location.
+
+```bash
+# Show current storage root
+thought config show
+
+# Set storage root (migrates data automatically)
+thought config set-root /path/to/folder
+
+# Overwrite or merge if destination already has a database
+thought config set-root /path/to/folder --overwrite
+thought config set-root /path/to/folder --merge
+```
+
+When you change the storage root, the existing database (including `-wal` and `-shm` files) is automatically migrated to the new location, and the old files are cleaned up.
 
 ## Write Operations
 
