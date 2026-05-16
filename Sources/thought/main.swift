@@ -41,6 +41,8 @@ struct CLI {
             try get(args: Array(arguments.dropFirst()))
         case "delete":
             try delete(args: Array(arguments.dropFirst()))
+        case "today":
+            try today(args: Array(arguments.dropFirst()))
         case "help", "--help", "-h":
             print(Self.help)
         default:
@@ -112,6 +114,24 @@ struct CLI {
         let json = args.contains("--json")
         let stats = try store.fetchStats()
         try ThoughtOutput.printStats(stats, json: json)
+    }
+
+    private func today(args: [String]) throws {
+        var options = QueryOptions(args: args)
+        if options.limit == nil {
+            options.limit = 50
+        }
+        let query = ThoughtQueryPresets.today(
+            limit: options.limit,
+            offset: options.offset,
+            archived: options.archived,
+            source: options.source,
+            channel: options.channel,
+            order: .descending
+        )
+        let thoughts = try store.fetchThoughts(query: query)
+        let ordered = thoughts.sorted(by: { $0.createdAt < $1.createdAt })
+        try ThoughtOutput.printThoughts(ordered, json: options.json)
     }
 
     private func days(args: [String]) throws {
@@ -271,6 +291,7 @@ struct CLI {
       thought search <query> [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived] [--json]
       thought export [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived]
       thought stats [--json]
+      thought today [--limit N] [--offset N] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived] [--json]
       thought days [--limit N] [--offset N] [--from DATE] [--to DATE] [--source SOURCE] [--channel CHANNEL] [--archived|--unarchived] [--json]
       thought add <text> [--source SOURCE] [--channel CHANNEL] [--tag TAG ...] [--archived] [--pinned]
       thought update <id> [--content TEXT] [--tag TAG ...] [--clear-tags] [--archived|--unarchived] [--pinned|--unpinned]
