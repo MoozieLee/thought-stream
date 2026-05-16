@@ -6,23 +6,44 @@
 
 # ThoughtStream
 
-ThoughtStream is a local-first macOS capture tool for short thoughts, plus a query-first CLI for later retrieval.
+ThoughtStream is a local-first thought inbox for macOS.
 
-It is designed around one constraint:
+It is built for a simple workflow:
 
-- capture should stay fast
-- retrieval inside the overlay should stay lightweight
-- heavier review should happen later, through CLI or agent workflows
+- stay in flow while working
+- capture a thought instantly
+- come back later to review it
+- use CLI and AI at the review stage, not the capture stage
+
+Most note tools ask you to organize too early.
+
+ThoughtStream is designed around a different idea:
+
+1. capture without context switching
+2. keep working
+3. review later
+4. summarize what mattered with modern AI tools
+
+## Who It Is For
+
+ThoughtStream is best for:
+
+- Mac power users
+- developers and CLI users
+- writers, researchers, and note-heavy knowledge workers
+- people who want something lighter than a full PKM app
+
+It is not trying to be a full notes workspace.
 
 ## What It Includes
 
 - `ThoughtStreamApp`
   - a Spotlight-style macOS overlay
   - global hotkey: `Shift+Command+Space`
-  - fast capture, lightweight slash commands, and result reuse
+  - low-friction capture, lightweight slash commands, and quick review
 - `thought`
   - a CLI for querying, exporting, updating, and deleting thoughts
-  - intended for scripting, automation, and agent workflows
+  - intended for scripting, automation, agent workflows, and AI-assisted review
 
 ## Quick Start
 
@@ -57,6 +78,26 @@ Or run the app directly:
 ./.build/debug/ThoughtStreamApp
 ```
 
+## Why It Exists
+
+ThoughtStream is not trying to be a full notes app.
+
+The goal is to keep capture friction very low while you are working, then let retrieval, review, and summarization happen later against a stable local store.
+
+That means the project intentionally favors:
+
+- append-first capture
+- minimal interruption
+- lightweight in-panel retrieval
+- local storage
+- explicit CLI access for downstream review and AI workflows
+
+And it intentionally avoids:
+
+- heavy organization during capture
+- turning the overlay into a workspace
+- pushing AI into the capture moment
+
 ## Basic Usage
 
 Open the overlay with `Shift+Command+Space`.
@@ -78,6 +119,8 @@ Some built-in slash commands:
 - `/help`
 - `/exit`
 
+Use `/keys` in the overlay to see the available keyboard shortcuts.
+
 ## Docs
 
 - [Getting Started](docs/getting-started.md)
@@ -87,25 +130,6 @@ Some built-in slash commands:
 - [Distribution](docs/distribution.md)
 - [Roadmap](ROADMAP.md)
 
-## Why This Project Exists
-
-ThoughtStream is not trying to be a full notes app.
-
-The goal is to keep capture friction very low, then let retrieval, review, and agent workflows happen later against a stable local store.
-
-That means the project intentionally favors:
-
-- append-first capture
-- lightweight in-panel retrieval
-- local storage
-- explicit CLI access for downstream workflows
-
-And it intentionally avoids:
-
-- heavy organization during capture
-- turning the overlay into a workspace
-- pushing all workflows into the GUI
-
 ## Current Status
 
 The current build already supports:
@@ -113,7 +137,7 @@ The current build already supports:
 - native macOS overlay capture
 - query-oriented CLI
 - slash commands in the overlay
-- lightweight result reuse and GUI editing
+- lightweight result reuse, keyboard help, and GUI editing
 - release packaging scripts for `.app`, `.zip`, and `.dmg`
 
 ## License

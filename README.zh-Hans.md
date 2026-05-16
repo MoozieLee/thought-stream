@@ -6,34 +6,44 @@
 
 # ThoughtStream
 
-ThoughtStream 是一个本地优先的 macOS 想法捕获工具，附带一个以查询为中心的 CLI，用于后续检索。
+ThoughtStream 是一个面向 macOS 的本地优先想法收件箱。
 
-它的设计围绕一个核心约束：
+它服务的是这样一条工作流：
 
-- 捕获必须保持快速
-- 覆盖层内的检索必须保持轻量
-- 更重的回顾工作应在后续通过 CLI 或 agent 工作流完成
+- 工作时尽量不被打断
+- 想法冒出来时立刻记一下
+- 之后再统一回顾
+- 在回顾阶段结合 CLI 和 AI 做总结
+
+很多笔记工具的问题，不是不能存，而是太早要求你整理。
+
+ThoughtStream 想做的是另一件事：
+
+1. 先记下，不切上下文
+2. 继续工作
+3. 之后再回来查、筛、回顾
+4. 最后再交给现代 AI 工具做总结
+
+## 适合谁
+
+ThoughtStream 更适合：
+
+- Mac 重度用户
+- 开发者和 CLI 用户
+- 写作者、研究者、笔记密集型工作者
+- 想要比完整 PKM 更轻一点工具的人
+
+它并不打算成为一个全功能笔记工作台。
 
 ## 包含什么
 
 - **`ThoughtStreamApp`**
   - 一个 Spotlight 风格的 macOS 覆盖层
   - 全局快捷键：`Shift + Command + Space`
-  - 快速捕获，轻量斜杠命令，结果复用
+  - 低摩擦捕获、轻量斜杠命令和快速回顾
 - **`thought`**
   - 用于查询、导出、更新和删除想法的 CLI
-  - 面向脚本、自动化和 agent 工作流
-
-## 架构概览
-
-```
-Package.swift
-├── ThoughtStreamCore  (库)   — 数据模型 + SQLite 存储 + 查询引擎
-├── ThoughtStreamApp  (可执行) — 原生 macOS 面板应用
-└── thought            (可执行) — CLI 查询工具
-```
-
-三个 target 共享 `ThoughtStreamCore` 作为底层库，实现数据模型和持久化逻辑的复用。
+  - 面向脚本、自动化、agent 工作流和 AI 辅助回顾
 
 ## 快速开始
 
@@ -82,6 +92,26 @@ env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build 
 
 已签名并公证的发布版本不需要此步骤。
 
+## 为什么做这个
+
+ThoughtStream 不是想取代完整笔记软件。
+
+它更关心的是：你在专注工作时，如何用最小代价把一个突然冒出来的想法放进一个可靠的收件箱，然后在之后再用 CLI、过滤和 AI 进行回顾。
+
+所以这个项目刻意偏向：
+
+- 先追加、后整理
+- 尽量少打断当前工作
+- 覆盖层内只做轻量检索
+- 数据本地优先
+- 为后续回顾和 AI 总结保留明确的 CLI 入口
+
+同时刻意避免：
+
+- 在捕获当下做重度组织
+- 把覆盖层做成完整工作台
+- 在捕获阶段强行引入 AI
+
 ## GUI 使用指南
 
 ### 唤起覆盖层
@@ -116,6 +146,8 @@ env HOME=$PWD/.home CLANG_MODULE_CACHE_PATH=$PWD/.build/ModuleCache swift build 
 | `/exit` | 关闭面板 |
 
 输入过程中会自动为斜杠命令提供补全建议。
+
+可以在覆盖层里输入 `/keys` 查看可用快捷键。
 
 ### 结果浏览
 
