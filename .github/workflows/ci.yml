@@ -13,6 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Select latest Xcode
+        run: |
+          DEVELOPER_DIR="$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)/Contents/Developer"
+          echo "Using DEVELOPER_DIR=$DEVELOPER_DIR"
+          sudo xcode-select -s "$DEVELOPER_DIR"
+          xcodebuild -version
+          swift --version
+
       - name: Build ThoughtStreamApp
         run: swift build --product ThoughtStreamApp
 
