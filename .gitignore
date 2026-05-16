@@ -5,3 +5,4 @@
 .tmp-thought-home/
 .tmp-thought-home-*/
 dist/
+.vscode/

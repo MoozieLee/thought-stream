@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="./README.zh-Hans.md">🇨🇳 简体中文</a>
+  &nbsp;&bull;&nbsp;
+  <strong>🇬🇧 English</strong>
+</p>
+
 # ThoughtStream
 
 ThoughtStream is a local-first macOS capture tool for short thoughts, plus a query-first CLI for later retrieval.
