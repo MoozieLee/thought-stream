@@ -142,4 +142,4 @@ The current build already supports:
 
 ## License
 
-License is not set yet.
+[MIT](LICENSE)
