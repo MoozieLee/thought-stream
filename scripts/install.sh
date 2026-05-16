@@ -56,10 +56,13 @@ fi
 
 ok "Latest version: $LATEST"
 
+# Strip leading 'v' from tag to get version string (used in artifact names)
+VERSION="${LATEST#v}"
+
 # ---------------------------------------------------------------------------
 # Download DMG
 # ---------------------------------------------------------------------------
-DMG_NAME="ThoughtStream-${LATEST}-${ARCH}.dmg"
+DMG_NAME="ThoughtStream-${VERSION}-${ARCH}.dmg"
 DMG_URL="https://github.com/$REPO/releases/download/$LATEST/$DMG_NAME"
 DMG_PATH="$TMP_DIR/$DMG_NAME"
 
@@ -70,7 +73,7 @@ ok "Downloaded to $DMG_PATH"
 # ---------------------------------------------------------------------------
 # Verify checksum
 # ---------------------------------------------------------------------------
-CHECKSUM_NAME="ThoughtStream-${LATEST}-checksums.txt"
+CHECKSUM_NAME="ThoughtStream-${VERSION}-checksums.txt"
 CHECKSUM_URL="https://github.com/$REPO/releases/download/$LATEST/$CHECKSUM_NAME"
 CHECKSUM_PATH="$TMP_DIR/$CHECKSUM_NAME"
 

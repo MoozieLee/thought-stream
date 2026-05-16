@@ -9,6 +9,7 @@ ZIP_PATH="$DIST_DIR/ThoughtStream.zip"
 BUILD_CONFIGURATION="${BUILD_CONFIGURATION:-release}"
 APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
+RELEASE_VERSION="${APP_VERSION}-b${APP_BUILD}"
 APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.thoughtstream.app}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
@@ -52,14 +53,14 @@ fi
 
 if [[ "$CREATE_DMG" == "1" ]]; then
   SIGNING_IDENTITY="$SIGNING_IDENTITY" \
-  APP_VERSION="$APP_VERSION" \
+  APP_VERSION="$RELEASE_VERSION" \
   "$DMG_SCRIPT"
 fi
 
 # ---------------------------------------------------------------------------
 # Generate checksums
 # ---------------------------------------------------------------------------
-CHECKSUM_FILE="$DIST_DIR/ThoughtStream-${APP_VERSION}-checksums.txt"
+CHECKSUM_FILE="$DIST_DIR/ThoughtStream-${RELEASE_VERSION}-checksums.txt"
 rm -f "$CHECKSUM_FILE"
 {
   if [[ -f "$ZIP_PATH" ]]; then
@@ -77,7 +78,7 @@ echo "Generated checksums at: $CHECKSUM_FILE"
 # ---------------------------------------------------------------------------
 # Upload to GitHub Releases
 # ---------------------------------------------------------------------------
-RELEASE_TAG="v${APP_VERSION}"
+RELEASE_TAG="v${RELEASE_VERSION}"
 if command -v gh &>/dev/null; then
   echo "Creating GitHub release: $RELEASE_TAG"
 
