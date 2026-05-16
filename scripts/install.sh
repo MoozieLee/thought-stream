@@ -7,6 +7,9 @@ CLI_SYMLINK="/usr/local/bin/thought"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+# Preferred format: DMG (more polished). Falls back to ZIP.
+PREFERRED_FORMAT="dmg"
+
 # ---------------------------------------------------------------------------
 # Colors
 # ---------------------------------------------------------------------------
@@ -60,15 +63,31 @@ ok "Latest version: $LATEST"
 VERSION="${LATEST#v}"
 
 # ---------------------------------------------------------------------------
-# Download DMG
+# Download release artifact
 # ---------------------------------------------------------------------------
-DMG_NAME="ThoughtStream-${VERSION}-${ARCH}.dmg"
-DMG_URL="https://github.com/$REPO/releases/download/$LATEST/$DMG_NAME"
-DMG_PATH="$TMP_DIR/$DMG_NAME"
+FORMAT=""
+ARTIFACT_NAME="ThoughtStream-${VERSION}-${ARCH}.dmg"
+ARTIFACT_URL="https://github.com/$REPO/releases/download/$LATEST/$ARTIFACT_NAME"
+ARTIFACT_PATH="$TMP_DIR/$ARTIFACT_NAME"
 
-info "Downloading $DMG_NAME ..."
-curl -fL# "$DMG_URL" -o "$DMG_PATH" 2>&1 | tail -1
-ok "Downloaded to $DMG_PATH"
+info "Downloading $ARTIFACT_NAME ..."
+HTTP_CODE=$(curl -sfL -w '%{http_code}' "$ARTIFACT_URL" -o "$ARTIFACT_PATH" 2>/dev/null || echo "000")
+
+if [ "$HTTP_CODE" = "200" ]; then
+  FORMAT="dmg"
+else
+  # Fall back to ZIP
+  rm -f "$ARTIFACT_PATH"
+  ARTIFACT_NAME="ThoughtStream.zip"
+  ARTIFACT_URL="https://github.com/$REPO/releases/download/$LATEST/$ARTIFACT_NAME"
+  ARTIFACT_PATH="$TMP_DIR/$ARTIFACT_NAME"
+
+  info "Falling back to $ARTIFACT_NAME ..."
+  curl -fL# "$ARTIFACT_URL" -o "$ARTIFACT_PATH" 2>&1 | tail -1
+  FORMAT="zip"
+fi
+
+ok "Downloaded $ARTIFACT_NAME"
 
 # ---------------------------------------------------------------------------
 # Verify checksum
@@ -78,34 +97,25 @@ CHECKSUM_URL="https://github.com/$REPO/releases/download/$LATEST/$CHECKSUM_NAME"
 CHECKSUM_PATH="$TMP_DIR/$CHECKSUM_NAME"
 
 if curl -sfL "$CHECKSUM_URL" -o "$CHECKSUM_PATH" 2>/dev/null; then
-  EXPECTED=$(grep "$DMG_NAME" "$CHECKSUM_PATH" | head -1 | awk '{print $1}')
+  EXPECTED=$(grep "$ARTIFACT_NAME" "$CHECKSUM_PATH" | head -1 | awk '{print $1}')
   if [ -n "$EXPECTED" ]; then
-    ACTUAL=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+    ACTUAL=$(shasum -a 256 "$ARTIFACT_PATH" | awk '{print $1}')
     if [ "$EXPECTED" = "$ACTUAL" ]; then
       ok "Checksum verified"
     else
       fail "Checksum mismatch! Expected $EXPECTED, got $ACTUAL"
     fi
   else
-    warn "No checksum entry for $DMG_NAME in $CHECKSUM_NAME"
+    warn "No checksum entry for $ARTIFACT_NAME in $CHECKSUM_NAME"
   fi
 else
   warn "Could not download checksums file (non-fatal)"
 fi
 
 # ---------------------------------------------------------------------------
-# Mount DMG and install .app
+# Install .app
 # ---------------------------------------------------------------------------
 info "Installing ThoughtStream.app ..."
-
-MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>/dev/null \
-  | grep '/Volumes/' \
-  | sed 's/.*\/Volumes\//\/Volumes\//' \
-  | head -1)
-
-if [ -z "$MOUNT_POINT" ]; then
-  fail "Failed to mount DMG."
-fi
 
 # Remove old version if exists
 if [ -d "$INSTALL_DIR/ThoughtStream.app" ]; then
@@ -113,8 +123,23 @@ if [ -d "$INSTALL_DIR/ThoughtStream.app" ]; then
   rm -rf "$INSTALL_DIR/ThoughtStream.app"
 fi
 
-ditto "$MOUNT_POINT/ThoughtStream.app" "$INSTALL_DIR/ThoughtStream.app"
-hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+case "$FORMAT" in
+  dmg)
+    MOUNT_POINT=$(hdiutil attach "$ARTIFACT_PATH" -nobrowse 2>/dev/null \
+      | grep '/Volumes/' \
+      | sed 's/.*\/Volumes\//\/Volumes\//' \
+      | head -1)
+    if [ -z "$MOUNT_POINT" ]; then
+      fail "Failed to mount DMG."
+    fi
+    ditto "$MOUNT_POINT/ThoughtStream.app" "$INSTALL_DIR/ThoughtStream.app"
+    hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+    ;;
+  zip)
+    unzip -q "$ARTIFACT_PATH" -d "$TMP_DIR/app-extract"
+    ditto "$TMP_DIR/app-extract/ThoughtStream.app" "$INSTALL_DIR/ThoughtStream.app"
+    ;;
+esac
 
 ok "Installed to $INSTALL_DIR/ThoughtStream.app"
 
