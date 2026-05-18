@@ -17,6 +17,7 @@ CREATE_DMG="${CREATE_DMG:-1}"
 RELEASE_WORK_DIR="$(mktemp -d /private/tmp/thoughtstream-release.XXXXXX)"
 STAGED_APP_PATH="$RELEASE_WORK_DIR/$APP_NAME"
 REPO="${REPO:-}"
+RELEASE_NOTES_FILE="$RELEASE_WORK_DIR/release-notes.md"
 
 BUILD_SCRIPT="$ROOT_DIR/scripts/build_app.sh"
 DMG_SCRIPT="$ROOT_DIR/scripts/create_dmg.sh"
@@ -53,6 +54,40 @@ resolve_repo_slug() {
     echo "${match[1]}"
     return
   fi
+}
+
+resolve_previous_tag() {
+  git tag --list 'v*' --sort=version:refname | grep -Fxv "$RELEASE_TAG" | tail -1
+}
+
+generate_release_notes() {
+  local previous_tag="$1"
+  local compare_range
+
+  if [[ -n "$previous_tag" ]]; then
+    compare_range="$previous_tag..$RELEASE_TAG"
+  else
+    compare_range="$RELEASE_TAG"
+  fi
+
+  {
+    echo "## Changes"
+    git log --reverse --pretty=format:'- %s' "$compare_range"
+    echo
+    echo
+    echo "## Notes"
+    if [[ -n "$SIGNING_IDENTITY" && -n "$NOTARY_PROFILE" ]]; then
+      echo "- This build is signed and notarized."
+    elif [[ -n "$SIGNING_IDENTITY" ]]; then
+      echo "- This build is signed but not notarized."
+    else
+      echo "- This build is ad hoc signed and intended for testing distribution."
+    fi
+    if [[ -n "$REPO" && -n "$previous_tag" ]]; then
+      echo
+      echo "**Full Changelog**: https://github.com/$REPO/compare/$previous_tag...$RELEASE_TAG"
+    fi
+  } > "$RELEASE_NOTES_FILE"
 }
 
 trap cleanup EXIT
@@ -122,6 +157,7 @@ echo "Generated checksums at: $CHECKSUM_FILE"
 # Upload to GitHub Releases
 # ---------------------------------------------------------------------------
 RELEASE_TAG="v${RELEASE_VERSION}"
+PREVIOUS_TAG="$(resolve_previous_tag)"
 
 # Ensure tag exists on remote before creating release
 git tag -f "$RELEASE_TAG" >/dev/null 2>&1
@@ -129,15 +165,20 @@ git push origin "$RELEASE_TAG" >/dev/null 2>&1 || {
   echo "Warning: could not push tag $RELEASE_TAG, continuing..." >&2
 }
 
+generate_release_notes "$PREVIOUS_TAG"
+
 if command -v gh &>/dev/null; then
   echo "Creating GitHub release: $RELEASE_TAG"
 
   if gh release view "$RELEASE_TAG" &>/dev/null 2>&1; then
     echo "Release $RELEASE_TAG already exists, uploading artifacts..."
+    gh release edit "$RELEASE_TAG" \
+      --title "ThoughtStream $RELEASE_VERSION" \
+      --notes-file "$RELEASE_NOTES_FILE"
   else
     gh release create "$RELEASE_TAG" \
       --title "ThoughtStream $RELEASE_VERSION" \
-      --generate-notes \
+      --notes-file "$RELEASE_NOTES_FILE" \
       --target main
   fi
 
