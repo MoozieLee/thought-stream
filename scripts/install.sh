@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="liyipeng/thought-stream"
+REPO="MoozieLee/thought-stream"
 INSTALL_DIR="/Applications"
 CLI_SYMLINK="/usr/local/bin/thought"
 TMP_DIR=$(mktemp -d)
