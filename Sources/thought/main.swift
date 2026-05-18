@@ -176,7 +176,7 @@ struct CLI {
 
     private func configSetRoot(args: [String]) throws {
         guard let path = args.first else {
-            throw CLIError.usage("thought config set-root <path> [--overwrite|--merge]")
+            throw CLIError.usage("thought config set-root <path> [--overwrite|--merge|--keep-destination]")
         }
 
         let policy: ThoughtStore.MigrationConflictPolicy
@@ -184,6 +184,8 @@ struct CLI {
             policy = .overwrite
         } else if args.contains("--merge") {
             policy = .merge
+        } else if args.contains("--keep-destination") {
+            policy = .keepDestination
         } else {
             policy = .error
         }
@@ -351,7 +353,7 @@ struct CLI {
       thought get <id> [--json]
       thought delete <id>
       thought config show
-      thought config set-root <path> [--overwrite|--merge]
+      thought config set-root <path> [--overwrite|--merge|--keep-destination]
 
     date formats:
       2026-05-12

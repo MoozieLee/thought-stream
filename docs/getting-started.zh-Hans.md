@@ -9,6 +9,12 @@ ThoughtStream 有两个入口：
 - **`thought`**
   - CLI，用于查询、导出和自动化
 
+典型工作流是：
+
+1. 先在覆盖层里快速记下
+2. 继续工作
+3. 之后再回来搜索、筛选、汇总
+
 ## 构建
 
 ```bash
@@ -37,6 +43,8 @@ open ./dist/ThoughtStream.app
 ./scripts/install_app.sh
 ```
 
+这个安装脚本也会尝试创建 `/usr/local/bin/thought`。
+
 ## 首次启动
 
 未签名或 ad hoc 本地构建可能需要在首次启动时进行一次手动授权。
@@ -64,34 +72,38 @@ Shift + Command + Space
 
 基本按键：
 
-| 按键 | 操作 |
-|------|------|
-| `Enter` | 保存 |
-| `Shift + Enter` | 插入换行 |
-| `Esc` | 取消或退出当前轻量模式 |
-| `↓` | 打开最近笔记 |
-| `Tab` | 在输入框和结果浏览之间切换焦点 |
+- `Enter` 保存当前输入
+- `Shift + Enter` 插入换行
+- `Esc` 会根据当前状态执行返回、取消编辑、收起结果或关闭面板
+- `↓` 在输入为空时打开最近笔记
+- `Tab` 在输入框和结果浏览之间切换
 
-## 应用内帮助
+## 第一次可以试的命令
 
-覆盖层内有两个内置帮助入口：
+在覆盖层里先试试这些：
 
-- `/help` — 显示可用的斜杠命令
-- `/keys` — 显示可用的键盘快捷键
+- `/tail`
+- `/tail 20`
+- `/search onboarding`
+- `/today`
+- `/tag work`
+- `/archive`
+- `/keys`
+- `/help`
+
+`/help` 用来看命令列表，`/keys` 用来看快捷键列表。
 
 ## 结果浏览
 
 当结果面板打开时：
 
-| 操作 | 描述 |
-|------|------|
-| `↑/↓` | 在结果列表中移动 |
-| `Enter` | 将选中的笔记内容复用为新的草稿 |
-| `Cmd + C` | 复制选中笔记的内容 |
-| `Cmd + D` | 删除选中的笔记 |
-| `Cmd + P` | 切换置顶状态 |
-| `Cmd + Delete` | 切换归档状态 |
-| `Cmd + E` | 编辑选中的笔记 |
+- `↑/↓` 在结果列表中移动
+- `Enter` 将选中的笔记内容复用为新的草稿
+- `Cmd + C` 复制选中笔记的内容
+- `Cmd + D` 删除选中的笔记
+- `Cmd + P` 切换置顶状态
+- `Cmd + Delete` 切换归档状态
+- `Cmd + E` 编辑选中的笔记
 
 ## 编辑已有笔记
 
@@ -99,15 +111,24 @@ Shift + Command + Space
 
 1. 选中一条笔记
 2. 按 `Cmd + E`
+3. 在输入框里修改内容
+4. 按 `Enter` 保存，或按 `Esc` 取消
 
-编辑行为：
+## 数据默认存放位置
 
-- `Enter` 保存更新
-- `Esc` 取消编辑，返回结果浏览
+默认数据库路径：
+
+```text
+~/Library/Application Support/ThoughtStream/thoughts.sqlite3
+```
+
+后续可以通过菜单栏应用或 `thought config set-root` 修改。
 
 ## 后续文档
 
+- [覆盖层指南](overlay.zh-Hans.md)
 - [CLI 指南](cli.zh-Hans.md)
 - [标签](tags.zh-Hans.md)
 - [存储](storage.zh-Hans.md)
 - [分发](distribution.zh-Hans.md)
+- [故障排查](troubleshooting.zh-Hans.md)

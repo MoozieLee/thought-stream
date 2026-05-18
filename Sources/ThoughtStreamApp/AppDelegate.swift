@@ -246,13 +246,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Database Already Exists"
-        alert.informativeText = "\(path) already contains a database.\n\nOverwrite: replace it with your current data.\nMerge: combine both databases (duplicate entries are skipped)."
+        alert.informativeText = "\(path) already contains a database.\n\nOverwrite: replace it with your current data.\nMerge: combine both databases (duplicate entries are skipped).\nUse Existing: keep the destination database and discard your current local database."
         alert.addButton(withTitle: "Overwrite")
         alert.addButton(withTitle: "Merge")
+        alert.addButton(withTitle: "Use Existing")
         alert.addButton(withTitle: "Cancel")
         switch alert.runModal() {
         case .alertFirstButtonReturn: return .overwrite
         case .alertSecondButtonReturn: return .merge
+        case .alertThirdButtonReturn: return .keepDestination
         default: return nil
         }
     }

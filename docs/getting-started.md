@@ -9,6 +9,12 @@ ThoughtStream has two entry points:
 - `thought`
   - the CLI for query, export, and automation
 
+The typical workflow is:
+
+1. capture quickly in the overlay
+2. keep working
+3. come back later with search, filters, and summaries
+
 ## Build
 
 ```bash
@@ -37,6 +43,8 @@ To build, install to `/Applications`, and launch in one step:
 ./scripts/install_app.sh
 ```
 
+That install script also tries to create `/usr/local/bin/thought`.
+
 ## First Run
 
 Unsigned or ad hoc local builds may require one manual approval on first launch.
@@ -64,18 +72,26 @@ Shift + Command + Space
 
 Basic keys:
 
-- `Enter` saves
+- `Enter` saves the current input
 - `Shift+Enter` inserts a newline
-- `Esc` cancels or exits the current lightweight mode
-- `↓` opens recent notes
-- `Tab` switches between input and result browsing
+- `Esc` returns, cancels editing, hides state, or closes the panel depending on context
+- `↓` opens recent notes from an empty input
+- `Tab` switches between the input and result browsing
 
-## In-App Help
+## First Commands To Try
 
-The overlay includes two built-in help entry points:
+Inside the overlay, try:
 
-- `/help` shows the available slash commands
-- `/keys` shows the available keyboard shortcuts
+- `/tail`
+- `/tail 20`
+- `/search onboarding`
+- `/today`
+- `/tag work`
+- `/archive`
+- `/keys`
+- `/help`
+
+Use `/help` for the command list and `/keys` for the shortcut list.
 
 ## Result Browsing
 
@@ -95,15 +111,24 @@ From result browsing:
 
 1. select a note
 2. press `Cmd+E`
+3. edit the note in the input field
+4. press `Enter` to save or `Esc` to cancel
 
-Editing behavior:
+## Where Data Lives
 
-- `Enter` saves the update
-- `Esc` cancels editing and returns to result browsing
+By default, ThoughtStream stores its database at:
+
+```text
+~/Library/Application Support/ThoughtStream/thoughts.sqlite3
+```
+
+You can change that later from the menu bar app or with `thought config set-root`.
 
 ## Next Docs
 
+- [Overlay Guide](overlay.md)
 - [CLI Guide](cli.md)
 - [Tags](tags.md)
 - [Storage](storage.md)
 - [Distribution](distribution.md)
+- [Troubleshooting](troubleshooting.md)

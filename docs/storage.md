@@ -36,6 +36,28 @@ thought config set-root /path/to/your/folder
 
 Both GUI and CLI write to the same config file, so they always agree on the storage location.
 
+## Migration Conflict Options
+
+If the destination folder already contains a ThoughtStream database, you now have three choices:
+
+- overwrite the destination with your current database
+- merge your current database into the destination
+- keep the destination database and discard your current local one
+
+CLI examples:
+
+```bash
+thought config set-root /path/to/folder --overwrite
+thought config set-root /path/to/folder --merge
+thought config set-root /path/to/folder --keep-destination
+```
+
+## Important Reset Behavior
+
+`Reset Storage Location` does not copy data back into the default folder.
+
+It only clears the configured custom path and makes ThoughtStream resolve storage from the default location again. If the default folder already has a database, that database becomes active. If it does not, ThoughtStream starts with a fresh one there.
+
 ## Config File
 
 The storage root is persisted in a single JSON config file:
@@ -58,19 +80,29 @@ If the file does not exist or `storage_root` is absent, the default location is 
 
 ThoughtStream resolves its storage root in this order:
 
-1. An explicit `baseDirectory` passed by the caller
+1. an explicit `baseDirectory` passed by the caller
 2. `storage_root` from `~/.config/thoughtstream/config.json`
 3. `~/Library/Application Support/ThoughtStream`
 
-There is no environment variable or UserDefaults involved — the config file is the single source of truth.
+There is no environment variable or UserDefaults involved. The config file is the single source of truth.
 
-## Why a Config File Instead of Environment Variables
+## Backup And Sync Notes
+
+If you want backup or sync behavior:
+
+- point storage to a folder that is itself backed up or synced
+- close ThoughtStream before doing manual copies of the database
+- copy `thoughts.sqlite3` together with any `-wal` or `-shm` companion files when they exist
+
+If you use a synced folder such as iCloud Drive, prefer one machine actively writing at a time. SQLite databases do not behave like merge-friendly text files.
+
+## Why A Config File Instead Of Environment Variables
 
 Environment variables are shell-dependent and split-brain prone:
 
-- GUI apps don't read shell profiles reliably
-- `export` in `.zshrc` doesn't cover bash/fish users
-- It's too easy to set a different path in one terminal session
+- GUI apps do not read shell profiles reliably
+- `export` in `.zshrc` does not cover bash or fish users
+- it is too easy to set a different path in one terminal session
 
 A config file is a single, predictable location that both the GUI app and CLI read consistently.
 

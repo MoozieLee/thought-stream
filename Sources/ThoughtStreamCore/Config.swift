@@ -3,14 +3,19 @@ import Foundation
 public struct ThoughtStreamConfig: Codable, Sendable {
     public var storageRoot: String?
 
-    private static let directoryURL: URL = {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/thoughtstream", isDirectory: true)
-    }()
+    private static var directoryURL: URL {
+        let homeURL: URL
+        if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
+            homeURL = URL(fileURLWithPath: home, isDirectory: true)
+        } else {
+            homeURL = FileManager.default.homeDirectoryForCurrentUser
+        }
+        return homeURL.appendingPathComponent(".config/thoughtstream", isDirectory: true)
+    }
 
-    public static let configURL: URL = {
+    public static var configURL: URL {
         directoryURL.appendingPathComponent("config.json", isDirectory: false)
-    }()
+    }
 
     public static func load() -> ThoughtStreamConfig {
         guard let data = try? Data(contentsOf: configURL),

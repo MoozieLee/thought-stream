@@ -105,6 +105,11 @@ public enum ThoughtStoreError: Error, LocalizedError {
 
 public final class ThoughtStore: @unchecked Sendable {
     public static let shared = try! ThoughtStore()
+    private static let searchIndexTokenizer = "trigram"
+    private static let searchIndexSQL = """
+    CREATE VIRTUAL TABLE thoughts_fts
+    USING fts5(content, tokenize='\(searchIndexTokenizer)');
+    """
 
     public let databaseURL: URL
     private let db: OpaquePointer
@@ -614,12 +619,7 @@ public final class ThoughtStore: @unchecked Sendable {
         try execute("CREATE INDEX IF NOT EXISTS idx_thoughts_day ON thoughts(day);")
         try execute("CREATE INDEX IF NOT EXISTS idx_thoughts_archived ON thoughts(archived);")
         try execute("CREATE INDEX IF NOT EXISTS idx_thoughts_pinned ON thoughts(pinned);")
-        try execute(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS thoughts_fts
-            USING fts5(content, tokenize='unicode61');
-            """
-        )
+        try ensureSearchIndex()
     }
 
     private func migrateSchemaIfNeeded() throws {
@@ -649,6 +649,33 @@ public final class ThoughtStore: @unchecked Sendable {
             columns.insert(String(cString: nameRaw))
         }
         return columns
+    }
+
+    private func ensureSearchIndex() throws {
+        let expectedTokenizerClause = "tokenize='\(Self.searchIndexTokenizer)'"
+        if let existingSQL = try fetchObjectSQL(named: "thoughts_fts"), existingSQL.contains(expectedTokenizerClause) {
+            return
+        }
+
+        try execute("DROP TABLE IF EXISTS thoughts_fts;")
+        try execute(Self.searchIndexSQL)
+        try rebuildSearchIndex()
+    }
+
+    private func fetchObjectSQL(named name: String) throws -> String? {
+        let statement = try prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1;")
+        defer { sqlite3_finalize(statement) }
+        try bind(text: name, at: 1, in: statement)
+
+        guard sqlite3_step(statement) == SQLITE_ROW, let sql = sqlite3_column_text(statement, 0) else {
+            return nil
+        }
+        return String(cString: sql)
+    }
+
+    private func rebuildSearchIndex() throws {
+        try execute("DELETE FROM thoughts_fts;")
+        try execute("INSERT INTO thoughts_fts(rowid, content) SELECT rowid, content FROM thoughts;")
     }
 
     private func validateExplicitTags(_ tags: [String]) throws -> [String] {
@@ -698,6 +725,8 @@ public final class ThoughtStore: @unchecked Sendable {
         case overwrite
         /// Merge source rows into the destination (duplicate IDs are skipped).
         case merge
+        /// Keep the destination as-is and discard the source database.
+        case keepDestination
     }
 
     /// Return all SQLite auxiliary files (WAL, SHM) associated with a database URL, if they exist.
@@ -735,7 +764,7 @@ public final class ThoughtStore: @unchecked Sendable {
             switch onConflict {
             case .error:
                 throw ThoughtStoreError.openDatabase(
-                    "A database already exists at \(newDatabaseURL.path). Use --overwrite or --merge to handle it."
+                    "A database already exists at \(newDatabaseURL.path). Use --overwrite, --merge, or --keep-destination to handle it."
                 )
             case .overwrite:
                 try FileManager.default.removeItem(at: newDatabaseURL)
@@ -744,6 +773,13 @@ public final class ThoughtStore: @unchecked Sendable {
                 }
             case .merge:
                 try mergeIntoDestination(source: oldDatabaseURL, destination: newDatabaseURL)
+                try FileManager.default.removeItem(at: oldDatabaseURL)
+                for suffix in ["-wal", "-shm"] {
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: oldDatabaseURL.path + suffix, isDirectory: false))
+                }
+                cleanUpOldDirectory(for: oldDatabaseURL)
+                return
+            case .keepDestination:
                 try FileManager.default.removeItem(at: oldDatabaseURL)
                 for suffix in ["-wal", "-shm"] {
                     try? FileManager.default.removeItem(at: URL(fileURLWithPath: oldDatabaseURL.path + suffix, isDirectory: false))
@@ -789,14 +825,33 @@ public final class ThoughtStore: @unchecked Sendable {
             throw ThoughtStoreError.openDatabase(sqliteMessage(from: destDB))
         }
 
-        let mergeThoughts = "INSERT OR IGNORE INTO thoughts SELECT * FROM source.thoughts"
+        let mergeThoughts = """
+        INSERT OR IGNORE INTO thoughts (
+            id, content, created_at, updated_at, day, source, channel, tags_json, archived, pinned
+        )
+        SELECT
+            id, content, created_at, updated_at, day, source, channel, tags_json, archived, pinned
+        FROM source.thoughts
+        """
         guard sqlite3_exec(destDB, mergeThoughts, nil, nil, nil) == SQLITE_OK else {
             sqlite3_exec(destDB, "DETACH source", nil, nil, nil)
             throw ThoughtStoreError.openDatabase(sqliteMessage(from: destDB))
         }
 
-        let mergeFTS = "INSERT OR IGNORE INTO thoughts_fts SELECT * FROM source.thoughts_fts"
-        sqlite3_exec(destDB, mergeFTS, nil, nil, nil)
+        let clearFTS = "DELETE FROM thoughts_fts"
+        guard sqlite3_exec(destDB, clearFTS, nil, nil, nil) == SQLITE_OK else {
+            sqlite3_exec(destDB, "DETACH source", nil, nil, nil)
+            throw ThoughtStoreError.openDatabase(sqliteMessage(from: destDB))
+        }
+
+        let repopulateFTS = """
+        INSERT INTO thoughts_fts(rowid, content)
+        SELECT rowid, content FROM thoughts
+        """
+        guard sqlite3_exec(destDB, repopulateFTS, nil, nil, nil) == SQLITE_OK else {
+            sqlite3_exec(destDB, "DETACH source", nil, nil, nil)
+            throw ThoughtStoreError.openDatabase(sqliteMessage(from: destDB))
+        }
 
         sqlite3_exec(destDB, "DETACH source", nil, nil, nil)
     }
@@ -855,7 +910,10 @@ public final class ThoughtStore: @unchecked Sendable {
     private func ftsEscaped(_ search: String) -> String {
         let collapsed = search
             .split(whereSeparator: \.isWhitespace)
-            .map { token in "\"\(token.replacing("\"", with: "\"\""))\"" }
+            .map { token in
+                let escaped = token.replacing("\"", with: "\"\"")
+                return "\"\(escaped)\"*"
+            }
             .joined(separator: " ")
         return collapsed.isEmpty ? search : collapsed
     }

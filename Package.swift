@@ -11,6 +11,9 @@ let package = Package(
         .executable(name: "ThoughtStreamApp", targets: ["ThoughtStreamApp"]),
         .executable(name: "thought", targets: ["thought"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-testing.git", from: "0.12.0")
+    ],
     targets: [
         .target(
             name: "ThoughtStreamCore",
@@ -28,7 +31,10 @@ let package = Package(
         ),
         .testTarget(
             name: "ThoughtStreamCoreTests",
-            dependencies: ["ThoughtStreamCore"]
+            dependencies: [
+                "ThoughtStreamCore",
+                .product(name: "Testing", package: "swift-testing")
+            ]
         )
     ]
 )
