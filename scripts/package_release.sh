@@ -58,11 +58,6 @@ resolve_repo_slug() {
 trap cleanup EXIT
 
 REPO="$(resolve_repo_slug)"
-CHANGELOG_URL="CHANGELOG.md"
-if [[ -n "$REPO" ]]; then
-  CHANGELOG_URL="https://github.com/$REPO/blob/main/CHANGELOG.md"
-fi
-
 BUILD_CONFIGURATION="$BUILD_CONFIGURATION" \
 APP_VERSION="$APP_VERSION" \
 APP_BUILD="$APP_BUILD" \
@@ -142,9 +137,8 @@ if command -v gh &>/dev/null; then
   else
     gh release create "$RELEASE_TAG" \
       --title "ThoughtStream $RELEASE_VERSION" \
-      --notes "See [CHANGELOG]($CHANGELOG_URL) for details." \
-      --target main \
-      --draft
+      --generate-notes \
+      --target main
   fi
 
   gh release upload "$RELEASE_TAG" "$ZIP_PATH" --clobber
