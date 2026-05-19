@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: ThoughtStore?
     private var panelController: CapturePanelController?
     private var hotKeyRef: EventHotKeyRef?
+    private var appearanceObserver: NSObjectProtocol?
     private let hotKeyID = EventHotKeyID(signature: OSType(0x54535452), id: 1) // TSTR
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -18,11 +19,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureStatusItem()
         installHotKey()
         installCLIIfNeeded()
+        observeSystemAppearanceChanges()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
+        }
+        if let appearanceObserver {
+            DistributedNotificationCenter.default().removeObserver(appearanceObserver)
         }
     }
 
@@ -204,6 +209,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let keyCode: UInt32 = 49 // space
         let modifiers = UInt32(cmdKey | shiftKey)
         RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+    }
+
+    private func observeSystemAppearanceChanges() {
+        appearanceObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.panelController?.systemAppearanceDidChange()
+            }
+        }
     }
 
     @discardableResult

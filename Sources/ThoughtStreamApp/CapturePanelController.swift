@@ -142,6 +142,15 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(captureView.textView)
+        captureView.refreshAppearance()
+    }
+
+    func systemAppearanceDidChange() {
+        guard let panel = window else { return }
+        panel.appearance = nil
+        captureView.refreshAppearance()
+        panel.contentView?.needsDisplay = true
+        panel.invalidateShadow()
     }
 
     func windowDidMove(_ notification: Notification) {

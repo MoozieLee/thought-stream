@@ -32,6 +32,14 @@ private enum CaptureTheme {
             ? (NSColor.systemRed.blended(withFraction: 0.2, of: .white) ?? .systemRed)
             : (NSColor.systemOrange.blended(withFraction: 0.15, of: .labelColor) ?? .systemOrange)
     }
+
+    static let resultHighlightColor = NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if isDark {
+            return NSColor.white.withAlphaComponent(0.1)
+        }
+        return NSColor.black.withAlphaComponent(0.065)
+    }
 }
 
 @MainActor
@@ -212,7 +220,7 @@ final class CaptureView: NSVisualEffectView {
         translatesAutoresizingMaskIntoConstraints = false
         material = .popover
         blendingMode = .behindWindow
-        state = .active
+        state = .followsWindowActiveState
         wantsLayer = true
         layer?.cornerRadius = cornerRadius
         layer?.cornerCurve = .continuous
@@ -419,11 +427,7 @@ final class CaptureView: NSVisualEffectView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyCurrentAppearance()
-        applySyntaxHighlighting()
-        if showingResults {
-            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
-        }
+        refreshAppearance()
     }
 
     func reset() {
@@ -437,7 +441,7 @@ final class CaptureView: NSVisualEffectView {
         visibleResultStartIndex = 0
         focusedSurface = .input
         hideResults()
-        applySyntaxHighlighting()
+        refreshAppearance()
         updateChrome()
     }
 
@@ -460,7 +464,7 @@ final class CaptureView: NSVisualEffectView {
             hideResults()
         }
         focusedSurface = .input
-        applySyntaxHighlighting()
+        refreshAppearance()
         updateChrome()
         focusTextInput()
         onTextChange?(textView.string)
@@ -474,10 +478,18 @@ final class CaptureView: NSVisualEffectView {
             self.hideResults()
         }
         focusedSurface = .input
-        applySyntaxHighlighting()
+        refreshAppearance()
         updateChrome()
         focusTextInput()
         onTextChange?(textView.string)
+    }
+
+    func refreshAppearance() {
+        applyCurrentAppearance()
+        applySyntaxHighlighting()
+        if showingResults {
+            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+        }
     }
 
     func showResultRows(
@@ -960,12 +972,20 @@ private extension CaptureView {
         autocompleteGhostLabel.textColor = .tertiaryLabelColor
         searchIconView.contentTintColor = .secondaryLabelColor
         clearButton.contentTintColor = .tertiaryLabelColor
-        dividerView.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
+        dividerView.layer?.backgroundColor = cgColor(for: NSColor.separatorColor.withAlphaComponent(0.35))
         inlineErrorLabel.textColor = CaptureTheme.inlineErrorColor
         modeStatusLabel.textColor = .secondaryLabelColor
         resultsHeaderLabel.textColor = .secondaryLabelColor
         resultsHintLabel.textColor = .tertiaryLabelColor
         emptyStateLabel.textColor = .secondaryLabelColor
+    }
+
+    func cgColor(for color: NSColor) -> CGColor {
+        var resolved: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolved = color.cgColor
+        }
+        return resolved ?? color.cgColor
     }
 }
 
@@ -1224,6 +1244,8 @@ final class PassthroughTextField: NSTextField {
 
 @MainActor
 final class TailResultRowView: NSView {
+    private var isHighlightedState = false
+
     init(row: CaptureResultRow, highlighted: Bool) {
         super.init(frame: NSRect(x: 0, y: 0, width: 0, height: 48))
         translatesAutoresizingMaskIntoConstraints = false
@@ -1290,11 +1312,25 @@ final class TailResultRowView: NSView {
     }
 
     func setHighlighted(_ highlighted: Bool) {
-        layer?.backgroundColor = (
+        isHighlightedState = highlighted
+        layer?.backgroundColor = cgColor(for: (
             highlighted
-                ? NSColor.controlBackgroundColor.withAlphaComponent(0.92)
+                ? CaptureTheme.resultHighlightColor
                 : NSColor.clear
-        ).cgColor
+        ))
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        setHighlighted(isHighlightedState)
+    }
+
+    private func cgColor(for color: NSColor) -> CGColor {
+        var resolved: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolved = color.cgColor
+        }
+        return resolved ?? color.cgColor
     }
 
     private static func makeAttributedTitle(_ content: String) -> NSAttributedString {
