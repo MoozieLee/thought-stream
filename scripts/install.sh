@@ -45,13 +45,28 @@ ok "Detected macOS / $ARCH"
 # ---------------------------------------------------------------------------
 info "Fetching latest release..."
 
-LATEST=$(curl -sfL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+API_RESPONSE=$(curl -fsSL \
+  -H "Accept: application/vnd.github+json" \
+  -H "User-Agent: ThoughtStream-Installer" \
+  "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null || true)
+
+LATEST=$(printf "%s" "$API_RESPONSE" \
   | grep '"tag_name":' \
   | head -1 \
   | sed 's/.*"tag_name": "//;s/".*//')
 
 if [ -z "$LATEST" ]; then
-  fail "Could not find latest release. Is the repo published?"
+  LATEST_URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+    "https://github.com/$REPO/releases/latest" 2>/dev/null || true)
+  case "$LATEST_URL" in
+    */tag/*)
+      LATEST=${LATEST_URL##*/}
+      ;;
+  esac
+fi
+
+if [ -z "$LATEST" ]; then
+  fail "Could not find latest release from GitHub API or release redirect."
 fi
 
 ok "Latest version: $LATEST"
