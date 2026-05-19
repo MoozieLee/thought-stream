@@ -27,6 +27,17 @@ sanitize_bundle() {
 
 mkdir -p "$HOME_DIR" "$MODULE_CACHE_DIR" "$DIST_DIR"
 
+# Recreate dependency working copies from cache before packaging. On this
+# machine, stale SwiftPM checkouts can hang on `git status` during release
+# builds, while fresh working copies resolve and build normally.
+rm -rf "$BUILD_DIR/checkouts/swift-syntax" "$BUILD_DIR/checkouts/swift-testing"
+
+# Warm dependency checkouts before building products. This keeps dependency
+# repair in a single explicit step before app/CLI compilation starts.
+env HOME="$HOME_DIR" \
+  CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" \
+  swift package resolve
+
 env HOME="$HOME_DIR" \
   CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" \
   swift build -c "$BUILD_CONFIGURATION" --product "$APP_EXECUTABLE"
