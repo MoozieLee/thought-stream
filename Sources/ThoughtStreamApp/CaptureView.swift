@@ -393,6 +393,7 @@ final class CaptureView: NSVisualEffectView {
             emptyStateLabel.centerYAnchor.constraint(equalTo: resultsContainer.centerYAnchor)
         ])
 
+        applyCurrentAppearance()
         updateChrome()
         applySyntaxHighlighting()
     }
@@ -414,6 +415,15 @@ final class CaptureView: NSVisualEffectView {
         )
         layer.mask = mask
         layer.backgroundColor = NSColor.clear.cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyCurrentAppearance()
+        applySyntaxHighlighting()
+        if showingResults {
+            renderResults(headerText: resultsHeaderLabel.stringValue, emptyStateText: emptyStateLabel.stringValue)
+        }
     }
 
     func reset() {
@@ -939,6 +949,23 @@ extension CaptureView: CaptureTextViewDelegate, NSTextViewDelegate {
         if !textView.hasMarkedText() {
             applySyntaxHighlighting()
         }
+    }
+}
+
+private extension CaptureView {
+    func applyCurrentAppearance() {
+        textView.textColor = baseTextColor
+        textView.insertionPointColor = baseTextColor
+        placeholderLabel.textColor = .secondaryLabelColor
+        autocompleteGhostLabel.textColor = .tertiaryLabelColor
+        searchIconView.contentTintColor = .secondaryLabelColor
+        clearButton.contentTintColor = .tertiaryLabelColor
+        dividerView.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
+        inlineErrorLabel.textColor = CaptureTheme.inlineErrorColor
+        modeStatusLabel.textColor = .secondaryLabelColor
+        resultsHeaderLabel.textColor = .secondaryLabelColor
+        resultsHintLabel.textColor = .tertiaryLabelColor
+        emptyStateLabel.textColor = .secondaryLabelColor
     }
 }
 
